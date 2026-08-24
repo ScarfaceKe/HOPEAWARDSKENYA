@@ -4,6 +4,7 @@ import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import multer from "multer";
 import path from "path";
+import { pool } from "./db";
 import { storage, CATEGORY_CAP, VOTING_START, VOTING_END } from "./storage";
 import { apiCache, imgCache, TTL_API, TTL_IMG } from "./cache";
 import { api } from "@shared/routes";
@@ -184,7 +185,7 @@ export async function registerRoutes(
   app.use(
     session({
       store: new PgStore({
-        conString: process.env.DATABASE_URL,
+        pool,
         createTableIfMissing: true,
       }),
       secret: sessionSecret || crypto.randomBytes(32).toString("hex"),

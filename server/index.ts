@@ -65,9 +65,18 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  await runMigrations();
-  await seedInitialData();
-  await registerRoutes(httpServer, app);
+  try {
+    console.log("[startup] Running database migrations...");
+    await runMigrations();
+    console.log("[startup] Migrations complete. Seeding initial data...");
+    await seedInitialData();
+    console.log("[startup] Data seeded. Registering routes...");
+    await registerRoutes(httpServer, app);
+    console.log("[startup] Routes registered.");
+  } catch (err) {
+    console.error("[startup] FATAL ERROR during initialization:", err);
+    process.exit(1);
+  }
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
@@ -100,4 +109,7 @@ app.use((req, res, next) => {
       log(`serving on port ${port}`);
     },
   );
-})();
+})().catch((err) => {
+  console.error("[startup] Unhandled error:", err);
+  process.exit(1);
+});
