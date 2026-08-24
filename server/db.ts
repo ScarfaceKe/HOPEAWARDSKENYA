@@ -30,17 +30,14 @@ if (!process.env.DATABASE_URL) {
   process.exit(1);
 }
 
-// Ensure SSL is always enabled for PostgreSQL connections (Render, Railway, etc.)
-const connectionString = process.env.DATABASE_URL.includes("sslmode=")
-  ? process.env.DATABASE_URL
-  : process.env.DATABASE_URL.includes("?")
-    ? `${process.env.DATABASE_URL}&sslmode=require`
-    : `${process.env.DATABASE_URL}?sslmode=require`;
-
+// SSL is configured via the `ssl` option below, which works for Render, Railway,
+// and other managed Postgres providers that use self-signed certificates.
+// Do NOT append sslmode= to the connection string — it can conflict with the
+// Pool-level ssl option and cause DEPTH_ZERO_SELF_SIGNED_CERT errors.
 console.log("[db] Connecting to database with SSL...");
 
 export const pool = new Pool({
-  connectionString,
+  connectionString: process.env.DATABASE_URL,
   max: 20,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 10000,
