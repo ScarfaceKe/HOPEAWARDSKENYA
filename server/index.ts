@@ -4,6 +4,7 @@ import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { seedInitialData } from "./storage";
+import { runMigrations } from "./migrate";
 
 const app = express();
 app.set("trust proxy", 1);
@@ -64,6 +65,7 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  await runMigrations();
   await seedInitialData();
   await registerRoutes(httpServer, app);
 

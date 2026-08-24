@@ -1,8 +1,5 @@
 import { z } from "zod";
-import { insertArtistSchema, insertVoteSchema, type ArtistResponse as _ArtistResponse, type VoteResponse as _VoteResponse } from "./schema";
-
-export type ArtistResponse = _ArtistResponse;
-export type VoteResponse = _VoteResponse;
+import { insertArtistSchema, artists, insertVoteSchema, votes } from "./schema";
 
 export const errorSchemas = {
   validation: z.object({
@@ -23,14 +20,14 @@ export const api = {
       method: "GET" as const,
       path: "/api/artists" as const,
       responses: {
-        200: z.array(z.custom<ArtistResponse>()),
+        200: z.array(z.custom<typeof artists.$inferSelect>()),
       },
     },
     get: {
       method: "GET" as const,
       path: "/api/artists/:id" as const,
       responses: {
-        200: z.custom<ArtistResponse>(),
+        200: z.custom<typeof artists.$inferSelect>(),
         404: errorSchemas.notFound,
       },
     },
@@ -39,7 +36,7 @@ export const api = {
       path: "/api/artists" as const,
       input: insertArtistSchema,
       responses: {
-        201: z.custom<ArtistResponse>(),
+        201: z.custom<typeof artists.$inferSelect>(),
         400: errorSchemas.validation,
       },
     },
@@ -50,7 +47,7 @@ export const api = {
       path: "/api/votes" as const,
       input: insertVoteSchema,
       responses: {
-        201: z.custom<VoteResponse>(),
+        201: z.custom<typeof votes.$inferSelect>(),
         400: errorSchemas.validation,
       },
     },
@@ -70,8 +67,10 @@ export function buildUrl(path: string, params?: Record<string, string | number>)
 }
 
 export type ArtistInput = z.infer<typeof api.artists.create.input>;
-export type ArtistsListResponse = ArtistResponse[];
+export type ArtistResponse = z.infer<typeof api.artists.create.responses[201]>;
+export type ArtistsListResponse = z.infer<typeof api.artists.list.responses[200]>;
 export type VoteInput = z.infer<typeof api.votes.create.input>;
+export type VoteResponse = z.infer<typeof api.votes.create.responses[201]>;
 export type ValidationError = z.infer<typeof errorSchemas.validation>;
 export type NotFoundError = z.infer<typeof errorSchemas.notFound>;
 export type InternalError = z.infer<typeof errorSchemas.internal>;

@@ -1,7 +1,7 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import type { Server } from "http";
 import session from "express-session";
-import MemoryStore from "memorystore";
+import connectPgSimple from "connect-pg-simple";
 import multer from "multer";
 import path from "path";
 import { storage, CATEGORY_CAP, VOTING_START, VOTING_END } from "./storage";
@@ -179,12 +179,13 @@ export async function registerRoutes(
     console.error("WARNING: SESSION_SECRET not set. Sessions will not persist across restarts.");
   }
 
-  const Store = MemoryStore(session);
+  const PgStore = connectPgSimple(session);
 
   app.use(
     session({
-      store: new Store({
-        checkPeriod: 86400000,
+      store: new PgStore({
+        conString: process.env.DATABASE_URL,
+        createTableIfMissing: true,
       }),
       secret: sessionSecret || crypto.randomBytes(32).toString("hex"),
       resave: false,
