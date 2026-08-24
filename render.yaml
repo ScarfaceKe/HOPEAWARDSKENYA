@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: hopeawardskenya
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: node dist/index.cjs
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: ADMIN_PASSWORD
+        generateValue: true
+      - key: MEGAPAY_API_KEY
+        sync: false
+      - key: DATABASE_URL
+        fromDatabase:
+          name: hopeawards-db
+          property: connectionString
+
+databases:
+  - name: hopeawards-db
+    plan: free
+    databaseName: hopeawards
