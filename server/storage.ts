@@ -223,14 +223,14 @@ class InMemoryStorage implements IStorage {
 
   async getTotalVotesCast(): Promise<number> {
     let total = 0;
-    for (const a of artistStore.values()) total += a.totalVotes;
+    for (const a of Array.from(artistStore.values())) total += a.totalVotes;
     return total;
   }
 
   async getTotalRevenue(): Promise<{ paidVotes: number; revenueKes: number }> {
     let paidVotes = 0;
     let revenueKes = 0;
-    for (const v of voteStore.values()) {
+    for (const v of Array.from(voteStore.values())) {
       paidVotes += v.votesAdded;
       revenueKes += v.amountKes;
     }
@@ -245,7 +245,7 @@ class InMemoryStorage implements IStorage {
   }
 
   async shuffleNominees(): Promise<void> {
-    for (const artist of artistStore.values()) {
+    for (const artist of Array.from(artistStore.values())) {
       artist.displayOrder = Math.floor(Math.random() * 1000000);
     }
   }
@@ -266,7 +266,7 @@ class InMemoryStorage implements IStorage {
 
   async countApprovedByCategory(category: string): Promise<number> {
     let count = 0;
-    for (const a of artistStore.values()) {
+    for (const a of Array.from(artistStore.values())) {
       if (a.category === category) count++;
     }
     return count;
@@ -274,7 +274,7 @@ class InMemoryStorage implements IStorage {
 
   async countAllApprovedByCategory(): Promise<Record<string, number>> {
     const out: Record<string, number> = {};
-    for (const a of artistStore.values()) {
+    for (const a of Array.from(artistStore.values())) {
       out[a.category] = (out[a.category] || 0) + 1;
     }
     return out;
@@ -292,7 +292,7 @@ class InMemoryStorage implements IStorage {
   }
 
   async getUploadedImage(filename: string): Promise<UploadedImage | undefined> {
-    for (const img of imageStore.values()) {
+    for (const img of Array.from(imageStore.values())) {
       if (img.filename === filename) return img;
     }
     return undefined;
@@ -306,19 +306,19 @@ class InMemoryStorage implements IStorage {
     const cutoff = Date.now() - olderThanMs;
     const referencedFilenames = new Set<string>();
 
-    for (const r of requestStore.values()) {
+    for (const r of Array.from(requestStore.values())) {
       if (r.imageUrl?.startsWith("/api/uploaded-images/")) {
         referencedFilenames.add(r.imageUrl.replace("/api/uploaded-images/", ""));
       }
     }
-    for (const a of artistStore.values()) {
+    for (const a of Array.from(artistStore.values())) {
       if (a.imageUrl?.startsWith("/api/uploaded-images/")) {
         referencedFilenames.add(a.imageUrl.replace("/api/uploaded-images/", ""));
       }
     }
 
     let deleted = 0;
-    for (const [id, img] of imageStore) {
+    for (const [id, img] of Array.from(imageStore.entries())) {
       const imgTime = img.createdAt?.getTime?.() ?? 0;
       if (imgTime < cutoff && !referencedFilenames.has(img.filename)) {
         imageStore.delete(id);
@@ -357,7 +357,7 @@ class InMemoryStorage implements IStorage {
 
   async createPendingPayment(reference: string, artistId: number, votesAdded: number, amountKes: number, voterPhone: string | null): Promise<void> {
     // Check for existing with same reference
-    for (const p of pendingStore.values()) {
+    for (const p of Array.from(pendingStore.values())) {
       if (p.reference === reference) return;
     }
     const pending: PendingPayment = {
@@ -373,7 +373,7 @@ class InMemoryStorage implements IStorage {
   }
 
   async deletePendingPayment(reference: string): Promise<void> {
-    for (const [id, p] of pendingStore) {
+    for (const [id, p] of Array.from(pendingStore.entries())) {
       if (p.reference === reference) {
         pendingStore.delete(id);
         return;

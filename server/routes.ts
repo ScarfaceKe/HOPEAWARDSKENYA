@@ -38,7 +38,7 @@ const uploadTokens = new Map<string, number>();
 const UPLOAD_TOKEN_TTL_MS = 15 * 60 * 1000;
 setInterval(() => {
   const now = Date.now();
-  for (const [token, expiry] of uploadTokens) {
+  for (const [token, expiry] of Array.from(uploadTokens.entries())) {
     if (now > expiry) uploadTokens.delete(token);
   }
 }, 5 * 60 * 1000).unref();
