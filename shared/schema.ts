@@ -1,5 +1,3 @@
-import { pgTable, text, serial, integer, timestamp } from "drizzle-orm/pg-core";
-import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
 export const CATEGORIES = [
@@ -92,86 +90,88 @@ export function isSongCategory(categoryId: string): boolean {
   return /\bsong\b/i.test(cat.name);
 }
 
-export const artists = pgTable("artists", {
-  id: serial("id").primaryKey(),
-  name: text("name").notNull(),
-  genre: text("genre").notNull(),
-  imageUrl: text("image_url").notNull(),
-  category: text("category").notNull(),
-  totalVotes: integer("total_votes").notNull().default(0),
-  displayOrder: integer("display_order").notNull().default(0),
-  bio: text("bio"),
+// ─── Plain TypeScript types (no Drizzle ORM) ─────────────────────────────────
+
+export interface Artist {
+  id: number;
+  name: string;
+  genre: string;
+  imageUrl: string;
+  category: string;
+  totalVotes: number;
+  displayOrder: number;
+  bio: string | null;
+}
+
+export interface VoteRecord {
+  id: number;
+  artistId: number;
+  amountKes: number;
+  votesAdded: number;
+  paystackReference: string;
+  voterPhone: string | null;
+  createdAt: Date | null;
+}
+
+export interface Request {
+  id: number;
+  name: string;
+  imageUrl: string;
+  category: string;
+  submitterName: string;
+  submitterPhone: string;
+  status: string;
+  createdAt: Date | null;
+}
+
+export interface PendingPayment {
+  id: number;
+  reference: string;
+  artistId: number;
+  votesAdded: number;
+  amountKes: number;
+  voterPhone: string | null;
+  createdAt: Date | null;
+}
+
+export interface UploadedImage {
+  id: number;
+  filename: string;
+  mimeType: string;
+  data: string;
+  createdAt: Date | null;
+}
+
+// ─── Zod validation schemas (kept for input validation) ───────────────────────
+
+export const insertArtistSchema = z.object({
+  name: z.string().min(1),
+  genre: z.string().min(1),
+  imageUrl: z.string().min(1),
+  category: z.string().min(1),
 });
 
-export const insertArtistSchema = createInsertSchema(artists).omit({
-  id: true,
-  totalVotes: true,
-  displayOrder: true,
+export const insertVoteSchema = z.object({
+  artistId: z.number(),
+  amountKes: z.number(),
+  votesAdded: z.number(),
+  paystackReference: z.string(),
+  voterPhone: z.string().nullable().optional(),
 });
 
-export const votes = pgTable("votes", {
-  id: serial("id").primaryKey(),
-  artistId: integer("artist_id").notNull(),
-  amountKes: integer("amount_kes").notNull(),
-  votesAdded: integer("votes_added").notNull(),
-  paystackReference: text("paystack_reference").notNull(),
-  voterPhone: text("voter_phone"),
-  createdAt: timestamp("created_at").defaultNow(),
+export const insertRequestSchema = z.object({
+  name: z.string().min(1),
+  imageUrl: z.string().min(1),
+  category: z.string().min(1),
+  submitterName: z.string().min(1),
+  submitterPhone: z.string().min(1),
 });
 
-export const insertVoteSchema = createInsertSchema(votes).omit({
-  id: true,
-  createdAt: true,
-});
+// ─── Derived types ────────────────────────────────────────────────────────────
 
-export const requests = pgTable("requests", {
-  id: serial("id").primaryKey(),
-  name: text("name").notNull(),
-  imageUrl: text("image_url").notNull(),
-  category: text("category").notNull(),
-  submitterName: text("submitter_name").notNull(),
-  submitterPhone: text("submitter_phone").notNull(),
-  status: text("status").notNull().default("pending"),
-  createdAt: timestamp("created_at").defaultNow(),
-});
-
-export const insertRequestSchema = createInsertSchema(requests).omit({
-  id: true,
-  status: true,
-  createdAt: true,
-});
-
-export type Artist = typeof artists.$inferSelect;
 export type InsertArtist = z.infer<typeof insertArtistSchema>;
-
-export type VoteRecord = typeof votes.$inferSelect;
 export type InsertVote = z.infer<typeof insertVoteSchema>;
-
-export type Request = typeof requests.$inferSelect;
 export type InsertRequest = z.infer<typeof insertRequestSchema>;
-
-
-export const pendingPayments = pgTable("pending_payments", {
-  id: serial("id").primaryKey(),
-  reference: text("reference").notNull(),
-  artistId: integer("artist_id").notNull(),
-  votesAdded: integer("votes_added").notNull(),
-  amountKes: integer("amount_kes").notNull(),
-  voterPhone: text("voter_phone"),
-  createdAt: timestamp("created_at").defaultNow(),
-});
-
-export type PendingPayment = typeof pendingPayments.$inferSelect;
-
-export const uploadedImages = pgTable("uploaded_images", {
-  id: serial("id").primaryKey(),
-  filename: text("filename").notNull(),
-  mimeType: text("mime_type").notNull(),
-  data: text("data").notNull(),
-  createdAt: timestamp("created_at").defaultNow(),
-});
-
-export type UploadedImage = typeof uploadedImages.$inferSelect;
 
 export type ArtistResponse = Artist;
 export type ArtistsListResponse = Artist[];

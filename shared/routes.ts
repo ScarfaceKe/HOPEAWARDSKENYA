@@ -1,5 +1,5 @@
-import { z } from 'zod';
-import { insertArtistSchema, artists, insertVoteSchema, votes } from './schema';
+import { z } from "zod";
+import { insertArtistSchema, insertVoteSchema } from "./schema";
 
 export const errorSchemas = {
   validation: z.object({
@@ -17,39 +17,24 @@ export const errorSchemas = {
 export const api = {
   artists: {
     list: {
-      method: 'GET' as const,
-      path: '/api/artists' as const,
-      responses: {
-        200: z.array(z.custom<typeof artists.$inferSelect>()),
-      },
+      method: "GET" as const,
+      path: "/api/artists" as const,
     },
     get: {
-      method: 'GET' as const,
-      path: '/api/artists/:id' as const,
-      responses: {
-        200: z.custom<typeof artists.$inferSelect>(),
-        404: errorSchemas.notFound,
-      },
+      method: "GET" as const,
+      path: "/api/artists/:id" as const,
     },
     create: {
-      method: 'POST' as const,
-      path: '/api/artists' as const,
+      method: "POST" as const,
+      path: "/api/artists" as const,
       input: insertArtistSchema,
-      responses: {
-        201: z.custom<typeof artists.$inferSelect>(),
-        400: errorSchemas.validation,
-      },
     },
   },
   votes: {
     create: {
-      method: 'POST' as const,
-      path: '/api/votes' as const,
+      method: "POST" as const,
+      path: "/api/votes" as const,
       input: insertVoteSchema,
-      responses: {
-        201: z.custom<typeof votes.$inferSelect>(),
-        400: errorSchemas.validation,
-      },
     },
   },
 };
@@ -67,10 +52,10 @@ export function buildUrl(path: string, params?: Record<string, string | number>)
 }
 
 export type ArtistInput = z.infer<typeof api.artists.create.input>;
-export type ArtistResponse = z.infer<typeof api.artists.create.responses[201]>;
-export type ArtistsListResponse = z.infer<typeof api.artists.list.responses[200]>;
+export type ArtistResponse = { id: number; name: string; genre: string; imageUrl: string; category: string; totalVotes: number; displayOrder: number; bio: string | null };
+export type ArtistsListResponse = ArtistResponse[];
 export type VoteInput = z.infer<typeof api.votes.create.input>;
-export type VoteResponse = z.infer<typeof api.votes.create.responses[201]>;
+export type VoteResponse = { id: number; artistId: number; amountKes: number; votesAdded: number; paystackReference: string; voterPhone: string | null; createdAt: Date | null };
 export type ValidationError = z.infer<typeof errorSchemas.validation>;
 export type NotFoundError = z.infer<typeof errorSchemas.notFound>;
 export type InternalError = z.infer<typeof errorSchemas.internal>;

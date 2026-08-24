@@ -1,10 +1,5 @@
-import { db } from "./db";
 import {
-  artists,
-  votes,
-  requests,
-  uploadedImages,
-  pendingPayments,
+  type Artist,
   type ArtistResponse,
   type InsertArtist,
   type InsertVote,
@@ -13,13 +8,39 @@ import {
   type InsertRequest,
   type UploadedImage,
   type PendingPayment,
+  CATEGORIES,
 } from "@shared/schema";
-import { eq, sql, lt, inArray } from "drizzle-orm";
 
 export const CATEGORY_CAP = 9;
 
 export const VOTING_START = new Date("2026-06-01T18:00:00+03:00").getTime();
-export const VOTING_END   = new Date("2026-12-31T23:59:59+03:00").getTime();
+export const VOTING_END = new Date("2026-12-31T23:59:59+03:00").getTime();
+
+// ─── In-memory data stores ────────────────────────────────────────────────────
+let nextArtistId = 1;
+let nextVoteId = 1;
+let nextRequestId = 1;
+let nextPendingId = 1;
+let nextImageId = 1;
+
+const artistStore = new Map<number, Artist>();
+const voteStore = new Map<number, VoteRecord>();
+const requestStore = new Map<number, NRequest>();
+const pendingStore = new Map<number, PendingPayment>();
+const imageStore = new Map<number, UploadedImage>();
+const voteRefIndex = new Map<string, number>(); // reference -> vote id
+
+interface VoteRecord {
+  id: number;
+  artistId: number;
+  amountKes: number;
+  votesAdded: number;
+  paystackReference: string;
+  voterPhone: string | null;
+  createdAt: Date | null;
+}
+
+// ─── Storage interface ────────────────────────────────────────────────────────
 
 export interface IStorage {
   getArtists(): Promise<ArtistResponse[]>;
@@ -57,273 +78,329 @@ export interface IStorage {
   getAllPendingPayments(): Promise<PendingPayment[]>;
 }
 
-export class DatabaseStorage implements IStorage {
+// ─── In-memory implementation ─────────────────────────────────────────────────
+
+class InMemoryStorage implements IStorage {
   async getArtists(): Promise<ArtistResponse[]> {
-    return await db.select().from(artists);
+    return Array.from(artistStore.values()).sort((a, b) => a.displayOrder - b.displayOrder);
   }
 
   async getArtistsByCategory(category: string): Promise<ArtistResponse[]> {
-    return await db.select().from(artists).where(eq(artists.category, category));
+    return Array.from(artistStore.values())
+      .filter((a) => a.category === category)
+      .sort((a, b) => a.displayOrder - b.displayOrder);
   }
 
   async getArtist(id: number): Promise<ArtistResponse | undefined> {
-    const [artist] = await db.select().from(artists).where(eq(artists.id, id));
-    return artist;
+    return artistStore.get(id);
   }
 
-  async createArtist(insertArtist: InsertArtist): Promise<ArtistResponse> {
-    const [artist] = await db.insert(artists).values(insertArtist).returning();
+  async createArtist(input: InsertArtist): Promise<ArtistResponse> {
+    const artist: Artist = {
+      id: nextArtistId++,
+      name: input.name,
+      genre: input.genre,
+      imageUrl: input.imageUrl,
+      category: input.category,
+      totalVotes: 0,
+      displayOrder: Math.floor(Math.random() * 1000000),
+      bio: null,
+    };
+    artistStore.set(artist.id, artist);
     return artist;
   }
 
   async deleteArtist(id: number): Promise<void> {
-    await db.delete(artists).where(eq(artists.id, id));
+    artistStore.delete(id);
   }
 
   async createVote(insertVote: InsertVote): Promise<VoteResponse> {
     const now = Date.now();
-    if (now < VOTING_START) {
-      throw new Error("Voting has not started yet.");
-    }
-    if (now > VOTING_END) {
-      throw new Error("Voting has closed. No further votes can be recorded.");
-    }
-    return await db.transaction(async (tx) => {
-      let vote: VoteResponse;
-      try {
-        const [inserted] = await tx.insert(votes).values(insertVote).returning();
-        vote = inserted;
-      } catch (err: any) {
-        if (err.code === "23505") {
-          const [existing] = await tx.select().from(votes).where(eq(votes.paystackReference, insertVote.paystackReference));
-          return existing;
-        }
-        console.error(`[CREATE-VOTE FAILED] ref=${insertVote.paystackReference}, artist=${insertVote.artistId}, votes=${insertVote.votesAdded}, errorCode=${err.code}, errorMessage=${err.message}`);
-        throw err;
-      }
-      await tx.update(artists)
-        .set({ totalVotes: sql`${artists.totalVotes} + ${insertVote.votesAdded}` })
-        .where(eq(artists.id, insertVote.artistId));
-      return vote;
-    });
-  }
+    if (now < VOTING_START) throw new Error("Voting has not started yet.");
+    if (now > VOTING_END) throw new Error("Voting has closed. No further votes can be recorded.");
 
-  async getVoteByReference(ref: string): Promise<VoteResponse | undefined> {
-    const [vote] = await db.select().from(votes).where(eq(votes.paystackReference, ref));
+    // Check for duplicate reference
+    const existingId = voteRefIndex.get(insertVote.paystackReference);
+    if (existingId !== undefined) {
+      const existing = voteStore.get(existingId);
+      if (existing) return existing;
+    }
+
+    const vote: VoteRecord = {
+      id: nextVoteId++,
+      artistId: insertVote.artistId,
+      amountKes: insertVote.amountKes,
+      votesAdded: insertVote.votesAdded,
+      paystackReference: insertVote.paystackReference,
+      voterPhone: insertVote.voterPhone ?? null,
+      createdAt: new Date(),
+    };
+    voteStore.set(vote.id, vote);
+    voteRefIndex.set(vote.paystackReference, vote.id);
+
+    // Update artist total votes
+    const artist = artistStore.get(insertVote.artistId);
+    if (artist) {
+      artist.totalVotes += insertVote.votesAdded;
+    }
+
     return vote;
   }
 
-  async createRequest(insertRequest: InsertRequest, status: string = "pending"): Promise<NRequest> {
-    const [request] = await db.insert(requests).values({ ...insertRequest, status }).returning();
-    return request;
-  }
-
-  async getRequests(status?: string): Promise<NRequest[]> {
-    if (status) {
-      return await db.select().from(requests).where(eq(requests.status, status));
-    }
-    return await db.select().from(requests);
-  }
-
-  async getRequest(id: number): Promise<NRequest | undefined> {
-    const [r] = await db.select().from(requests).where(eq(requests.id, id));
-    return r;
-  }
-
-  async getRequestsByPhone(phone: string): Promise<NRequest[]> {
-    const normalized = phone.replace(/[^0-9+]/g, "");
-    return await db
-      .select()
-      .from(requests)
-      .where(sql`regexp_replace(${requests.submitterPhone}, '[^0-9+]', '', 'g') = ${normalized}`);
-  }
-
-  async findArtistByNameCategory(name: string, category: string): Promise<ArtistResponse | undefined> {
-    const [artist] = await db
-      .select()
-      .from(artists)
-      .where(sql`lower(${artists.name}) = lower(${name}) and ${artists.category} = ${category}`)
-      .orderBy(sql`${artists.id} asc`)
-      .limit(1);
-    return artist;
-  }
-
-  async updateArtist(id: number, data: { name: string; imageUrl: string }): Promise<ArtistResponse> {
-    const name = data.name.trim();
-    const imageUrl = data.imageUrl.trim();
-    if (!name) throw new Error("Name cannot be empty");
-    if (!imageUrl) throw new Error("Image URL cannot be empty");
-    const [updated] = await db.update(artists).set({ name, imageUrl }).where(eq(artists.id, id)).returning();
-    if (!updated) throw new Error("Artist not found");
-    return updated;
-  }
-
-  async updateArtistCategory(id: number, category: string): Promise<void> {
-    await db.update(artists).set({ category }).where(eq(artists.id, id));
-  }
-
-  async updateArtistBio(id: number, bio: string): Promise<ArtistResponse> {
-    const [updated] = await db.update(artists).set({ bio: bio.trim() || null }).where(eq(artists.id, id)).returning();
-    if (!updated) throw new Error("Artist not found");
-    return updated;
-  }
-
-  async getTotalVotesCast(): Promise<number> {
-    const result = await db.select({ total: sql<number>`COALESCE(SUM(${artists.totalVotes}), 0)` }).from(artists);
-    return Number(result[0]?.total ?? 0);
-  }
-
-  async getTotalRevenue(): Promise<{ paidVotes: number; revenueKes: number }> {
-    const result = await db.select({
-      paidVotes: sql<number>`COALESCE(SUM(${votes.votesAdded}), 0)`,
-      revenueKes: sql<number>`COALESCE(SUM(${votes.amountKes}), 0)`,
-    }).from(votes);
-    return {
-      paidVotes: Number(result[0]?.paidVotes ?? 0),
-      revenueKes: Number(result[0]?.revenueKes ?? 0),
-    };
-  }
-
-  async addVotesToArtist(id: number, votes: number): Promise<ArtistResponse> {
-    const [updated] = await db.update(artists)
-      .set({ totalVotes: sql`${artists.totalVotes} + ${votes}` })
-      .where(eq(artists.id, id))
-      .returning();
-    if (!updated) throw new Error("Artist not found");
-    return updated;
+  async getVoteByReference(ref: string): Promise<VoteResponse | undefined> {
+    const id = voteRefIndex.get(ref);
+    if (id === undefined) return undefined;
+    return voteStore.get(id);
   }
 
   async getVotesByPhone(phone: string): Promise<VoteResponse[]> {
     const normalized = phone.replace(/\D/g, "");
     if (!normalized) return [];
-    return await db.select().from(votes).where(
-      sql`regexp_replace(${votes.voterPhone}, '[^0-9]', '', 'g') = ${normalized}`
+    return Array.from(voteStore.values()).filter((v) => {
+      const vPhone = (v.voterPhone || "").replace(/\D/g, "");
+      return vPhone === normalized;
+    });
+  }
+
+  async createRequest(input: InsertRequest, status: string = "pending"): Promise<NRequest> {
+    const request: NRequest = {
+      id: nextRequestId++,
+      name: input.name,
+      imageUrl: input.imageUrl,
+      category: input.category,
+      submitterName: input.submitterName,
+      submitterPhone: input.submitterPhone,
+      status,
+      createdAt: new Date(),
+    };
+    requestStore.set(request.id, request);
+    return request;
+  }
+
+  async getRequests(status?: string): Promise<NRequest[]> {
+    const all = Array.from(requestStore.values());
+    if (status) return all.filter((r) => r.status === status);
+    return all;
+  }
+
+  async getRequest(id: number): Promise<NRequest | undefined> {
+    return requestStore.get(id);
+  }
+
+  async getRequestsByPhone(phone: string): Promise<NRequest[]> {
+    const normalized = phone.replace(/[^0-9+]/g, "");
+    return Array.from(requestStore.values()).filter((r) => {
+      const rPhone = (r.submitterPhone || "").replace(/[^0-9+]/g, "");
+      return rPhone === normalized;
+    });
+  }
+
+  async findArtistByNameCategory(name: string, category: string): Promise<ArtistResponse | undefined> {
+    return Array.from(artistStore.values()).find(
+      (a) => a.name.toLowerCase() === name.toLowerCase() && a.category === category
     );
   }
 
+  async updateArtist(id: number, data: { name: string; imageUrl: string }): Promise<ArtistResponse> {
+    const artist = artistStore.get(id);
+    if (!artist) throw new Error("Artist not found");
+    artist.name = data.name.trim();
+    artist.imageUrl = data.imageUrl.trim();
+    return artist;
+  }
+
+  async updateArtistCategory(id: number, category: string): Promise<void> {
+    const artist = artistStore.get(id);
+    if (artist) artist.category = category;
+  }
+
+  async updateArtistBio(id: number, bio: string): Promise<ArtistResponse> {
+    const artist = artistStore.get(id);
+    if (!artist) throw new Error("Artist not found");
+    artist.bio = bio.trim() || null;
+    return artist;
+  }
+
+  async getTotalVotesCast(): Promise<number> {
+    let total = 0;
+    for (const a of artistStore.values()) total += a.totalVotes;
+    return total;
+  }
+
+  async getTotalRevenue(): Promise<{ paidVotes: number; revenueKes: number }> {
+    let paidVotes = 0;
+    let revenueKes = 0;
+    for (const v of voteStore.values()) {
+      paidVotes += v.votesAdded;
+      revenueKes += v.amountKes;
+    }
+    return { paidVotes, revenueKes };
+  }
+
+  async addVotesToArtist(id: number, votes: number): Promise<ArtistResponse> {
+    const artist = artistStore.get(id);
+    if (!artist) throw new Error("Artist not found");
+    artist.totalVotes += votes;
+    return artist;
+  }
+
   async shuffleNominees(): Promise<void> {
-    await db.execute(sql`UPDATE artists SET display_order = FLOOR(RANDOM() * 1000000)::INTEGER`);
+    for (const artist of artistStore.values()) {
+      artist.displayOrder = Math.floor(Math.random() * 1000000);
+    }
   }
 
   async updateRequestStatus(id: number, status: string): Promise<NRequest | undefined> {
-    const [request] = await db.update(requests)
-      .set({ status })
-      .where(eq(requests.id, id))
-      .returning();
+    const request = requestStore.get(id);
+    if (!request) return undefined;
+    request.status = status;
     return request;
   }
 
   async updateRequestCategory(id: number, category: string): Promise<NRequest | undefined> {
-    const [request] = await db.update(requests)
-      .set({ category })
-      .where(eq(requests.id, id))
-      .returning();
+    const request = requestStore.get(id);
+    if (!request) return undefined;
+    request.category = category;
     return request;
   }
 
   async countApprovedByCategory(category: string): Promise<number> {
-    const [{ count }] = await db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(artists)
-      .where(eq(artists.category, category));
-    return Number(count) || 0;
+    let count = 0;
+    for (const a of artistStore.values()) {
+      if (a.category === category) count++;
+    }
+    return count;
   }
 
   async countAllApprovedByCategory(): Promise<Record<string, number>> {
-    const rows = await db
-      .select({ category: artists.category, count: sql<number>`count(*)::int` })
-      .from(artists)
-      .groupBy(artists.category);
     const out: Record<string, number> = {};
-    for (const r of rows) out[r.category] = Number(r.count) || 0;
+    for (const a of artistStore.values()) {
+      out[a.category] = (out[a.category] || 0) + 1;
+    }
     return out;
   }
 
   async saveUploadedImage(filename: string, mimeType: string, data: string): Promise<void> {
-    await db.insert(uploadedImages).values({ filename, mimeType, data });
+    const image: UploadedImage = {
+      id: nextImageId++,
+      filename,
+      mimeType,
+      data,
+      createdAt: new Date(),
+    };
+    imageStore.set(image.id, image);
   }
 
   async getUploadedImage(filename: string): Promise<UploadedImage | undefined> {
-    const [image] = await db.select().from(uploadedImages).where(eq(uploadedImages.filename, filename));
-    return image;
+    for (const img of imageStore.values()) {
+      if (img.filename === filename) return img;
+    }
+    return undefined;
   }
 
   async countUploadedImages(): Promise<number> {
-    const [{ count }] = await db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(uploadedImages);
-    return Number(count) || 0;
+    return imageStore.size;
   }
 
   async deleteOrphanedUploads(olderThanMs: number): Promise<number> {
-    const cutoff = new Date(Date.now() - olderThanMs);
+    const cutoff = Date.now() - olderThanMs;
+    const referencedFilenames = new Set<string>();
 
-    const referencedFromRequests = await db
-      .select({ imageUrl: requests.imageUrl })
-      .from(requests);
-    const referencedFromArtists = await db
-      .select({ imageUrl: artists.imageUrl })
-      .from(artists);
-
-    const referencedFilenames = new Set([
-      ...referencedFromRequests.map((r) => r.imageUrl.replace("/api/uploaded-images/", "")),
-      ...referencedFromArtists.map((r) => r.imageUrl.replace("/api/uploaded-images/", "")),
-    ]);
-
-    const candidates = await db
-      .select({ id: uploadedImages.id, filename: uploadedImages.filename })
-      .from(uploadedImages)
-      .where(lt(uploadedImages.createdAt, cutoff));
-
-    const toDelete = candidates
-      .filter((u) => !referencedFilenames.has(u.filename))
-      .map((u) => u.id);
-
-    if (toDelete.length === 0) return 0;
-
-    await db.delete(uploadedImages).where(inArray(uploadedImages.id, toDelete));
-    return toDelete.length;
-  }
-  async createVoteForce(insertVote: InsertVote): Promise<VoteResponse> {
-    return await db.transaction(async (tx) => {
-      let vote: VoteResponse;
-      try {
-        const [inserted] = await tx.insert(votes).values(insertVote).returning();
-        vote = inserted;
-      } catch (err: any) {
-        if (err.code === "23505") {
-          const [existing] = await tx.select().from(votes).where(eq(votes.paystackReference, insertVote.paystackReference));
-          return existing;
-        }
-        throw err;
+    for (const r of requestStore.values()) {
+      if (r.imageUrl?.startsWith("/api/uploaded-images/")) {
+        referencedFilenames.add(r.imageUrl.replace("/api/uploaded-images/", ""));
       }
-      await tx.update(artists)
-        .set({ totalVotes: sql`${artists.totalVotes} + ${insertVote.votesAdded}` })
-        .where(eq(artists.id, insertVote.artistId));
-      return vote;
-    });
+    }
+    for (const a of artistStore.values()) {
+      if (a.imageUrl?.startsWith("/api/uploaded-images/")) {
+        referencedFilenames.add(a.imageUrl.replace("/api/uploaded-images/", ""));
+      }
+    }
+
+    let deleted = 0;
+    for (const [id, img] of imageStore) {
+      const imgTime = img.createdAt?.getTime?.() ?? 0;
+      if (imgTime < cutoff && !referencedFilenames.has(img.filename)) {
+        imageStore.delete(id);
+        deleted++;
+      }
+    }
+    return deleted;
+  }
+
+  async createVoteForce(insertVote: InsertVote): Promise<VoteResponse> {
+    const existingId = voteRefIndex.get(insertVote.paystackReference);
+    if (existingId !== undefined) {
+      const existing = voteStore.get(existingId);
+      if (existing) return existing;
+    }
+
+    const vote: VoteRecord = {
+      id: nextVoteId++,
+      artistId: insertVote.artistId,
+      amountKes: insertVote.amountKes,
+      votesAdded: insertVote.votesAdded,
+      paystackReference: insertVote.paystackReference,
+      voterPhone: insertVote.voterPhone ?? null,
+      createdAt: new Date(),
+    };
+    voteStore.set(vote.id, vote);
+    voteRefIndex.set(vote.paystackReference, vote.id);
+
+    const artist = artistStore.get(insertVote.artistId);
+    if (artist) {
+      artist.totalVotes += insertVote.votesAdded;
+    }
+
+    return vote;
   }
 
   async createPendingPayment(reference: string, artistId: number, votesAdded: number, amountKes: number, voterPhone: string | null): Promise<void> {
-    await db.insert(pendingPayments).values({ reference, artistId, votesAdded, amountKes, voterPhone }).onConflictDoNothing();
+    // Check for existing with same reference
+    for (const p of pendingStore.values()) {
+      if (p.reference === reference) return;
+    }
+    const pending: PendingPayment = {
+      id: nextPendingId++,
+      reference,
+      artistId,
+      votesAdded,
+      amountKes,
+      voterPhone,
+      createdAt: new Date(),
+    };
+    pendingStore.set(pending.id, pending);
   }
 
   async deletePendingPayment(reference: string): Promise<void> {
-    await db.delete(pendingPayments).where(eq(pendingPayments.reference, reference));
+    for (const [id, p] of pendingStore) {
+      if (p.reference === reference) {
+        pendingStore.delete(id);
+        return;
+      }
+    }
   }
 
   async getOldPendingPayments(olderThanMs: number): Promise<PendingPayment[]> {
-    const cutoff = new Date(Date.now() - olderThanMs);
-    return await db.select().from(pendingPayments).where(lt(pendingPayments.createdAt, cutoff));
+    const cutoff = Date.now() - olderThanMs;
+    return Array.from(pendingStore.values()).filter((p) => {
+      const pTime = p.createdAt?.getTime?.() ?? 0;
+      return pTime < cutoff;
+    });
   }
 
   async getAllPendingPayments(): Promise<PendingPayment[]> {
-    return await db.select().from(pendingPayments).orderBy(pendingPayments.createdAt);
+    return Array.from(pendingStore.values()).sort((a, b) => {
+      const aTime = a.createdAt?.getTime?.() ?? 0;
+      const bTime = b.createdAt?.getTime?.() ?? 0;
+      return aTime - bTime;
+    });
   }
 }
 
 export async function seedInitialData() {
+  // Fresh start for 3rd edition — no seed data
   return;
 }
 
-export const storage = new DatabaseStorage();
+export const storage = new InMemoryStorage();
