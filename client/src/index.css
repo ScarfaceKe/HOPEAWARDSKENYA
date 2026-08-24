@@ -1,0 +1,253 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 240 10% 4%;
+    --foreground: 0 0% 98%;
+
+    --primary: 38 92% 50%;
+    --primary-foreground: 0 0% 0%;
+    
+    --secondary: 111 100% 49%;
+    --secondary-foreground: 0 0% 0%;
+    
+    --accent: 175 85% 45%;
+    --accent-foreground: 0 0% 0%;
+
+    --destructive: 0 100% 50%;
+    --destructive-foreground: 0 0% 100%;
+
+    --muted: 240 5% 15%;
+    --muted-foreground: 240 5% 65%;
+
+    --card: 240 10% 6%;
+    --card-foreground: 0 0% 98%;
+
+    --border: 240 10% 15%;
+    --input: 240 10% 15%;
+    --ring: 38 92% 50%;
+
+    --radius: 0.75rem;
+
+    --font-display: 'Space Grotesk', sans-serif;
+    --font-body: 'Outfit', sans-serif;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased selection:bg-primary selection:text-black;
+    font-family: var(--font-body);
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-display);
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    font-weight: 700;
+  }
+}
+
+@layer utilities {
+  .font-display {
+    font-family: var(--font-display);
+    font-weight: 700;
+  }
+  
+  .font-body {
+    font-family: var(--font-body);
+  }
+
+  .neon-text-gold {
+    text-shadow: 0 0 10px rgba(217, 161, 12, 0.7), 0 0 20px rgba(217, 161, 12, 0.5), 0 0 30px rgba(217, 161, 12, 0.3);
+  }
+  .neon-text-green {
+    text-shadow: 0 0 10px rgba(57, 255, 20, 0.7), 0 0 20px rgba(57, 255, 20, 0.5);
+  }
+  .neon-text-teal {
+    text-shadow: 0 0 10px rgba(0, 188, 163, 0.7), 0 0 20px rgba(0, 188, 163, 0.5);
+  }
+
+  .neon-box-gold {
+    box-shadow: 0 0 15px rgba(217, 161, 12, 0.4), inset 0 0 10px rgba(217, 161, 12, 0.15);
+  }
+  .neon-box-green {
+    box-shadow: 0 0 15px rgba(57, 255, 20, 0.4), inset 0 0 10px rgba(57, 255, 20, 0.2);
+  }
+  .neon-box-teal {
+    box-shadow: 0 0 15px rgba(0, 188, 163, 0.4), inset 0 0 10px rgba(0, 188, 163, 0.15);
+  }
+
+  .bg-grid-pattern {
+    background-size: 32px 32px;
+    background-image: 
+      linear-gradient(to right, rgba(255,255,255,0.03) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(255,255,255,0.03) 1px, transparent 1px);
+    background-attachment: scroll;
+  }
+  /* Touch-device hardening — prevents GPU compositor corruption on Mali/PowerVR/Adreno phones.
+     Strip every effect that forces a separate compositing layer, so the entire page renders
+     as one flat surface that any phone GPU can paint without tearing. */
+  @media (hover: none) {
+    /* Kill all hover transforms */
+    .hover\:-translate-y-1:hover,
+    .hover\:scale-105:hover,
+    .hover\:scale-110:hover { transform: none !important; }
+
+    /* Kill the tiled grid background */
+    .bg-grid-pattern { background-image: none !important; }
+
+    /* Kill backdrop-filter (frosted glass) */
+    .backdrop-blur-sm, .backdrop-blur, .backdrop-blur-md, .backdrop-blur-lg, .backdrop-blur-xl {
+      backdrop-filter: none !important;
+      -webkit-backdrop-filter: none !important;
+    }
+
+    /* Kill all neon glow shadows — multi-offset box-shadow forces compositing layers per element */
+    .neon-text-gold, .neon-text-green, .neon-text-teal { text-shadow: none !important; }
+    .neon-box-gold, .neon-box-green, .neon-box-teal { box-shadow: none !important; }
+
+    /* Kill the bouncing/glowing vote button animation */
+    .vote-bounce { animation: none !important; }
+
+    /* NUCLEAR: Kill ALL animations, transitions, filters, shadows, and blend modes on touch.
+       Every animated transform/opacity creates a separate GPU compositor layer on Mali/Adreno.
+       Those layers tear and smear pixels (the yellow/orange rainbow stripes you see are
+       neighboring elements' colors bleeding through composited layers). The only fix
+       that fully works on cheap-GPU phones is to render the whole page as ONE flat surface. */
+    *, *::before, *::after {
+      filter: none !important;
+      -webkit-filter: none !important;
+      backdrop-filter: none !important;
+      -webkit-backdrop-filter: none !important;
+      will-change: auto !important;
+      text-shadow: none !important;
+      box-shadow: none !important;
+      mix-blend-mode: normal !important;
+      animation: none !important;
+      transition: none !important;
+    }
+
+    /* CRITICAL: Flatten every semi-transparent dark/light background to a solid opaque color.
+       Mali GPU rainbow tearing is caused by stacking semi-transparent dark layers on dark
+       parents. The compositor allocates a separate layer per alpha element and tears when
+       blending them. Solid colors = single paint pass = no tearing. */
+    .min-h-screen { background-color: hsl(var(--background)) !important; }
+
+    /* Solid backgrounds for input/select/textarea — these are the worst offenders */
+    input, select, textarea,
+    .bg-black\/50, .bg-black\/40, .bg-black\/30, .bg-black\/20,
+    .bg-white\/5, .bg-white\/10, .bg-white\/20 {
+      background-color: #0a0a0a !important;
+      background-image: none !important;
+    }
+
+    /* Solid card backgrounds */
+    .bg-card, .bg-card\/50, .bg-card\/80 {
+      background-color: hsl(var(--card)) !important;
+    }
+
+    /* Solid borders — alpha borders also trigger the compositor bug */
+    .border-white\/5, .border-white\/10, .border-white\/20 {
+      border-color: #1f1f1f !important;
+    }
+
+    /* Kill scroll-repaint "scratch" artifacts on Chrome Android.
+       Thin 1px borders + subpixel scroll positions = horizontal tear lines.
+       Replace borders with a slightly lighter card background so cards
+       still look distinct without drawing any 1px lines that can tear. */
+    .border-white\/5, .border-white\/10 {
+      border-width: 0 !important;
+    }
+    .bg-card {
+      background-color: #15151a !important;
+    }
+
+    /* Belt-and-braces: force the page background opaque so any compositor
+       glitches can't reveal uninitialized GPU memory between sections. */
+    html, body, #root, main, section {
+      background-color: hsl(var(--background)) !important;
+    }
+
+    /* ADMIN PANEL: flatten every translucent COLORED background to a solid
+       opaque tint. The admin uses red/green/teal/gold see-through buttons and
+       pills; layered over scrolling content their alpha compositing is what
+       tears into rainbow garbage on Mali GPUs. Solid = no tearing.
+       Same treatment as the landing page, just for colored layers. */
+
+    /* Red (reject / destructive) */
+    .bg-red-500\/5  { background-color: #191114 !important; }
+    .bg-red-500\/20 { background-color: #3b191b !important; }
+    .bg-red-500\/30 { background-color: #521e20 !important; }
+    .bg-red-500\/90 { background-color: #d83f3f !important; }
+
+    /* Green (secondary / approve) */
+    .bg-secondary\/10 { background-color: #10250f !important; }
+    .bg-secondary\/15 { background-color: #11310e !important; }
+    .bg-secondary\/20 { background-color: #123d0e !important; }
+    .bg-secondary\/25 { background-color: #14490d !important; }
+    .bg-secondary\/30 { background-color: #15550c !important; }
+    .bg-secondary\/90 { background-color: #22e202 !important; }
+
+    /* Teal (accent / move-category) */
+    .bg-accent\/10 { background-color: #0e2123 !important; }
+    .bg-accent\/15 { background-color: #0e2c2c !important; }
+    .bg-accent\/20 { background-color: #0f3535 !important; }
+    .bg-accent\/25 { background-color: #0f403e !important; }
+
+    /* Gold (primary) + amber */
+    .bg-primary\/20 { background-color: #3c2b10 !important; }
+    .bg-primary\/90 { background-color: #de900b !important; }
+    .bg-amber-500\/10 { background-color: #251c10 !important; }
+
+    /* Solid colored borders (alpha borders tear the same way) */
+    .border-red-500\/30 { border-color: #5a2222 !important; }
+    .border-red-500\/50 { border-color: #8a3030 !important; }
+    .border-red-500\/60 { border-color: #a03636 !important; }
+    .border-secondary\/20 { border-color: #1f4d1a !important; }
+    .border-secondary\/30 { border-color: #2a6622 !important; }
+    .border-secondary\/40 { border-color: #35802b !important; }
+    .border-accent\/30 { border-color: #1a5a55 !important; }
+    .border-accent\/40 { border-color: #206b65 !important; }
+    .border-amber-500\/20 { border-color: #4a3a1a !important; }
+    .border-amber-500\/30 { border-color: #5a4520 !important; }
+    .border-primary\/30 { border-color: #5a4520 !important; }
+    .border-primary\/50 { border-color: #8a6a20 !important; }
+  }
+
+  /* Honor system "reduce motion" preference — additional safety net */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+    }
+  }
+
+  .clip-path-slant {
+    clip-path: polygon(0 0, 100% 0, 95% 100%, 5% 100%);
+  }
+  
+  .clip-path-slant-button {
+    clip-path: polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%);
+  }
+
+  .vote-bounce {
+    animation: voteBounce 2s ease-in-out infinite, voteGlow 2s ease-in-out infinite;
+  }
+
+  @keyframes voteBounce {
+    0%, 100% { transform: translateY(0); }
+    15% { transform: translateY(-6px); }
+    30% { transform: translateY(0); }
+    45% { transform: translateY(-4px); }
+    60% { transform: translateY(0); }
+  }
+
+  @keyframes voteGlow {
+    0%, 100% { box-shadow: 0 0 8px rgba(217, 161, 12, 0.3), 0 0 2px rgba(217, 161, 12, 0.2); }
+    25% { box-shadow: 0 0 18px rgba(217, 161, 12, 0.6), 0 0 40px rgba(217, 161, 12, 0.2); }
+    50% { box-shadow: 0 0 8px rgba(217, 161, 12, 0.3), 0 0 2px rgba(217, 161, 12, 0.2); }
+    75% { box-shadow: 0 0 18px rgba(217, 161, 12, 0.6), 0 0 40px rgba(217, 161, 12, 0.2); }
+  }
+}
