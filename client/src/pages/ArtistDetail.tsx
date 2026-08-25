@@ -183,6 +183,7 @@ VOTING CLOSED
       <VoteDialog
         artistId={artist.id}
         artistName={artist.name}
+        categoryName={categoryName}
         isOpen={isVoteOpen}
         onClose={() => setIsVoteOpen(false)}
         onVoteSuccess={() => setJustVoted(true)}
