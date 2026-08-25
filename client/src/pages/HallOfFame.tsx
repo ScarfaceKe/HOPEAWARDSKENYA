@@ -72,7 +72,7 @@ export default function HallOfFame() {
 
             <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full border border-yellow-500/40 bg-yellow-500/10 mb-6">
               <Trophy className="w-4 h-4 text-yellow-400" />
-              <span className="text-yellow-400 font-bold text-xs uppercase tracking-widest">2nd Edition · 2026</span>
+              <span className="text-yellow-400 font-bold text-xs uppercase tracking-widest">3rd Edition · 2026</span>
             </div>
 
             <h1 className="font-display text-5xl md:text-7xl text-white leading-none mb-4">
@@ -82,7 +82,7 @@ export default function HallOfFame() {
               </span>
             </h1>
             <p className="text-muted-foreground text-lg max-w-xl mx-auto leading-relaxed">
-              These are the winners of the <strong className="text-white">Hope Awards Kenya 2026</strong> — 2nd Edition.
+              These are the winners of the <strong className="text-white">Hope Awards Kenya 2026</strong> — 3rd Edition.
               They rose above the rest, earned their votes, and will never be forgotten.
             </p>
           </motion.div>
@@ -197,7 +197,7 @@ export default function HallOfFame() {
             <Trophy className="w-12 h-12 text-yellow-400 mx-auto mb-4" />
             <h2 className="font-display text-3xl text-white mb-3">THEY WILL NEVER BE FORGOTTEN</h2>
             <p className="text-muted-foreground leading-relaxed mb-2">
-              Hope Awards Kenya 2026 — 2nd Edition. Held on <span className="text-white font-semibold">Friday, 10th July 2026</span> at Express Way Lounge, Mombasa Road.
+              Hope Awards Kenya 2026 — 3rd Edition. Held on <span className="text-white font-semibold">Friday, 4th December 2026</span> at Express Way Lounge, Mombasa Road.
             </p>
             <p className="text-muted-foreground/60 text-sm">
               Thank you to every fan who voted, every artist who participated, and everyone who made this possible.

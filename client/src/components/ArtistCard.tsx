@@ -143,7 +143,7 @@ export function ArtistCard({ artist }: ArtistCardProps) {
                 className="px-4 py-3 bg-white/5 border border-white/10 text-muted-foreground rounded-xl font-display text-sm tracking-wider flex items-center gap-2 cursor-not-allowed shrink-0"
               >
                 <Lock className="w-3 h-3" />
-                OPENS JUNE 1
+VOTING CLOSED
               </div>
             ) : (
               <div

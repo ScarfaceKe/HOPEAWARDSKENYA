@@ -1,8 +1,8 @@
 import { useState, useEffect } from "react";
 
-export const VOTING_START = new Date("2026-06-01T18:00:00+03:00").getTime();
+export const VOTING_START = new Date("2026-08-01T18:00:00+03:00").getTime();
 export const VOTING_END   = new Date("2026-12-31T23:59:59+03:00").getTime();
-export const AWARDS_DATE  = "Friday, 10th July 2026";
+export const AWARDS_DATE  = "Friday, 4th December 2026";
 
 export type VotingPhase = "pre" | "open" | "closed";
 

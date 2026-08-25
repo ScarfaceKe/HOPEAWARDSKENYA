@@ -14,7 +14,7 @@ function NominationShareBanner() {
   const nominationUrl = `${window.location.origin}/nominate`;
 
   const waMessage = encodeURIComponent(
-    `🎵 *HOPE AWARDS KENYA 2026* 🏆\n\nAre you an Artist, DJ or MC? Now is your chance!\n\n👉 Nominate yourself here:\n${nominationUrl}\n\nVoting opens *1st June 2026*. Awards night is *Friday, 10th July 2026*.\n\n🌟 Share with every artist you know!`
+    `🎵 *HOPE AWARDS KENYA 2026* 🏆\n\nAre you an Artist, DJ or MC? Now is your chance!\n\n👉 Nominate yourself here:\n${nominationUrl}\n\nVoting is LIVE. Awards night is *Friday, 4th December 2026*.\n\n🌟 Share with every artist you know!`
   );
   const waLink = `https://wa.me/?text=${waMessage}`;
 
@@ -45,7 +45,7 @@ function NominationShareBanner() {
                 NOMINATE YOURSELF
               </h2>
               <p className="text-muted-foreground text-lg leading-relaxed max-w-xl">
-                Are you an artist, DJ or MC? Submit your own nomination now — voting opens <span className="text-primary font-bold">1st June 2026</span>. Share this link with every artist you know.
+                Are you an artist, DJ or MC? Submit your own nomination now — voting is live! Share this link with every artist you know.
               </p>
             </div>
 
@@ -196,17 +196,17 @@ export default function Home() {
     }
   }
   const activeCategories = capacityData
-    ? CATEGORIES.filter((c: any) => (categoryCounts[c.id] ?? 0) >= 2)
+    ? CATEGORIES.filter((c: any) => (categoryCounts[c.id] ?? 0) >= 1)
     : [];
 
   const heroBadge = phase === "pre"
-    ? { color: "accent", text: "Nominations Open — Voting Starts 1st June 2026" }
+    ? { color: "accent", text: "Nominations Open — Voting Live Now" }
     : phase === "open"
     ? { color: "secondary", text: "Live Voting Open" }
     : { color: "primary", text: "🏆 Results Are Out — Hall of Fame Now Open!" };
 
   const heroDesc = phase === "pre"
-    ? "Nominate yourself or your favourite artist now. Voting opens 1st June 2026 at 6:00 PM EAT. 1 Vote = 10 KES."
+    ? "Nominate yourself or your favourite artist now. Voting is live! 1 Vote = 10 KES."
     : phase === "open"
     ? "Vote for the best Artists, DJs, MCs & more. Pick a category and back your favourite. 1 Vote = 10 KES."
     : "The votes have been counted. The winners have been crowned. See who won across every category in the Hope Awards Kenya 2026 Hall of Fame.";
@@ -265,7 +265,7 @@ export default function Home() {
               <span className="h-px w-10 bg-gradient-to-r from-transparent to-primary/60" />
               <span className="px-4 py-1.5 rounded-full border border-primary/40 bg-primary/10 backdrop-blur-sm">
                 <span className="font-display text-sm md:text-base tracking-[0.25em] text-primary">
-                  2<span className="text-primary/80">ND</span> EDITION · 2026
+                  3<span className="text-primary/80">RD</span> EDITION · 2026
                 </span>
               </span>
               <span className="h-px w-10 bg-gradient-to-l from-transparent to-primary/60" />
@@ -341,7 +341,7 @@ export default function Home() {
                 <h2 className="font-display text-3xl md:text-5xl text-white leading-tight mb-2">
                   FRIDAY,{" "}
                   <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary via-accent to-secondary neon-text-gold">
-                    10TH JULY 2026
+                    4TH DECEMBER 2026
                   </span>
                 </h2>
                 <div className="flex flex-col sm:flex-row items-center md:items-start gap-3 mt-3 justify-center md:justify-start">
@@ -360,8 +360,7 @@ export default function Home() {
               {/* Badge */}
               <div className="shrink-0 flex flex-col items-center gap-1 px-6 py-4 rounded-2xl bg-black/40 border border-primary/30">
                 <span className="font-display text-xs text-primary uppercase tracking-widest">Save the</span>
-                <span className="font-display text-4xl text-white leading-none">10</span>
-                <span className="font-display text-xs text-white/60 uppercase tracking-widest">July 2026</span>
+                <span className="font-display text-4xl text-white leading-none">10</span>                    <span className="font-display text-xs text-white/60 uppercase tracking-widest">December 2026</span>
               </div>
             </div>
           </div>

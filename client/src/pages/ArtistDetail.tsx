@@ -150,7 +150,7 @@ export default function ArtistDetail() {
               ) : votingPre ? (
                 <div className="w-full py-5 bg-white/5 border border-white/10 text-muted-foreground rounded-xl font-display text-lg tracking-widest mb-4 flex items-center justify-center gap-3 cursor-not-allowed">
                   <Lock className="w-5 h-5" />
-                  VOTING OPENS JUNE 1ST
+VOTING CLOSED
                 </div>
               ) : null}
 

@@ -107,14 +107,14 @@ export function ApprovalCelebration() {
     ? `🏆 I'm a nominee in the Hope Awards Kenya 2026 for ${categoryName} — VOTING IS OPEN NOW! 1 vote = 10 KES. Cast yours: ${shareUrl}`
     : votingClosed
     ? `🏆 I was nominated in the Hope Awards Kenya 2026 for ${categoryName}. Awards night: ${AWARDS_DATE}. ${shareUrl}`
-    : `🏆 I'm officially a Hope Awards Kenya 2026 nominee for ${categoryName}! Voting opens Monday 1st June 2026 at 6PM EAT — bookmark my profile and vote when it goes live: ${shareUrl}`;
+    : `🏆 I'm officially a Hope Awards Kenya 2026 nominee for ${categoryName}! Check back soon for voting details — bookmark my profile: ${shareUrl}`;
   const whatsappHref = `https://wa.me/?text=${encodeURIComponent(shareMessage)}`;
 
   const votingNotice = votingOpen
     ? "Voting is OPEN — fans can vote now."
     : votingClosed
     ? `Voting has closed. Awards night ${AWARDS_DATE}.`
-    : "Voting opens Monday 1st June 2026 at 6PM EAT";
+    : "Voting details coming soon — check back later";
 
   const copyLink = async () => {
     try {
@@ -190,7 +190,7 @@ export function ApprovalCelebration() {
                 ? "Voting is live — rally your fans to vote for you right now."
                 : votingClosed
                 ? "Voting has closed. Awards night is almost here."
-                : "Now it's time to share your profile and tell your friends and fans to vote for you when voting opens on 1st June 2026."}
+                : "Now it's time to share your profile and tell your friends and fans to vote for you when voting opens."}
             </p>
 
             <div
@@ -218,7 +218,7 @@ export function ApprovalCelebration() {
                   ? "Voting is live right now. Send your link to fans before the count climbs."
                   : votingClosed
                   ? "Thank your supporters and announce your nomination."
-                  : "Send your profile to friends and fans on WhatsApp now. The message tells them to vote for you when voting opens 1st June 2026 at 6PM EAT."}
+                  : "Send your profile to friends and fans on WhatsApp now. The message tells them to vote for you when voting opens."}
               </p>
               <div className="grid grid-cols-2 gap-3">
                 <a

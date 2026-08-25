@@ -18,7 +18,7 @@ import { eq, sql, lt, inArray } from "drizzle-orm";
 
 export const CATEGORY_CAP = 9;
 
-export const VOTING_START = new Date("2026-06-01T18:00:00+03:00").getTime();
+export const VOTING_START = new Date("2026-08-01T18:00:00+03:00").getTime();
 export const VOTING_END   = new Date("2026-12-31T23:59:59+03:00").getTime();
 
 export interface IStorage {

@@ -3,9 +3,9 @@ import { CATEGORIES } from "../shared/schema";
 
 const SITE_ORIGIN = "https://hopeawards.co.ke";
 
-const VOTING_START = new Date("2026-06-01T18:00:00+03:00").getTime();
+const VOTING_START = new Date("2026-08-01T18:00:00+03:00").getTime();
 const VOTING_END   = new Date("2026-12-31T23:59:59+03:00").getTime();
-const AWARDS_DATE  = "Friday, 10th July 2026";
+const AWARDS_DATE  = "Friday, 4th December 2026";
 
 type VotingPhase = "pre" | "open" | "closed";
 function currentPhase(): VotingPhase {
@@ -50,13 +50,13 @@ export async function getOgOverrideForUrl(url: string): Promise<OgOverride | nul
       let description: string;
       if (phase === "open") {
         title = `${cat.name} - Vote Now | Hope Awards Kenya 2026`;
-        description = `Voting is OPEN for ${cat.name} at Hope Awards Kenya 2026 (2nd Edition). 1 Vote = 10 KES via M-Pesa or card. Awards night Friday 10 July 2026.`;
+        description = `Voting is OPEN for ${cat.name} at Hope Awards Kenya 2026 (3rd Edition). 1 Vote = 10 KES via M-Pesa or card. Awards night Friday 10 July 2026.`;
       } else if (phase === "closed") {
         title = `${cat.name} Nominees | Hope Awards Kenya 2026`;
-        description = `See the ${cat.name} nominees at Hope Awards Kenya 2026 (2nd Edition). Voting has closed — winners revealed live on awards night, ${AWARDS_DATE}.`;
+        description = `See the ${cat.name} nominees at Hope Awards Kenya 2026 (3rd Edition). Voting has closed — winners revealed live on awards night, ${AWARDS_DATE}.`;
       } else {
         title = `${cat.name} Nominees | Hope Awards Kenya 2026`;
-        description = `Meet the ${cat.name} nominees at Hope Awards Kenya 2026 (2nd Edition). Voting opens Monday 1st June 2026 at 6PM EAT. 1 Vote = 10 KES.`;
+        description = `Meet the ${cat.name} nominees at Hope Awards Kenya 2026 (3rd Edition). Voting opens Monday 1st June 2026 at 6PM EAT. 1 Vote = 10 KES.`;
       }
       return {
         title,
@@ -75,7 +75,7 @@ export async function getOgOverrideForUrl(url: string): Promise<OgOverride | nul
       const phase = currentPhase();
       if (phase === "open") {
         return {
-          title: "🗳️ Voting is LIVE — Hope Awards Kenya 2026 (2nd Edition)",
+          title: "🗳️ Voting is LIVE — Hope Awards Kenya 2026 (3rd Edition)",
           description: "Voting is NOW OPEN at Hope Awards Kenya 2026! Pick your category, back your favourite artist, DJ or MC. 1 Vote = 10 KES via M-Pesa. Awards night Friday 10 July 2026.",
           image,
           imageType: imageMimeFromUrl(image),
@@ -86,8 +86,8 @@ export async function getOgOverrideForUrl(url: string): Promise<OgOverride | nul
         };
       }
       return {
-        title: "Your Name on the Trophy? Nominate Now - Hope Awards Kenya 2026 (2nd Edition)",
-        description: "The 2nd Edition of Hope Awards Kenya is here. Lights. Cameras. Your name on the list. Put yourself (or a Kenyan creative you believe in) forward across 78 categories. Free to enter. Awards night Friday 10 July 2026.",
+        title: "Your Name on the Trophy? Nominate Now - Hope Awards Kenya 2026 (3rd Edition)",
+        description: "The 3rd Edition of Hope Awards Kenya is here. Lights. Cameras. Your name on the list. Put yourself (or a Kenyan creative you believe in) forward across 78 categories. Free to enter. Awards night Friday 10 July 2026.",
         image,
         imageType: imageMimeFromUrl(image),
         imageWidth: 1200,
@@ -121,7 +121,7 @@ export async function getOgOverrideForUrl(url: string): Promise<OgOverride | nul
         description = `${subject} was nominated for ${categoryName} at Hope Awards Kenya 2026. Voting has closed — winners revealed live on awards night, ${AWARDS_DATE}.`;
       } else {
         title = `Vote ${r.name} - ${categoryName} | Hope Awards Kenya 2026`;
-        description = `Support ${subject} for ${categoryName} at Hope Awards Kenya 2026 (2nd Edition). Voting opens Monday 1st June 2026 at 6PM EAT. 1 Vote = 10 KES.`;
+        description = `Support ${subject} for ${categoryName} at Hope Awards Kenya 2026 (3rd Edition). Voting opens Monday 1st June 2026 at 6PM EAT. 1 Vote = 10 KES.`;
       }
       return {
         title,
