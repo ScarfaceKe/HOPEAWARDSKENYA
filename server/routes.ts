@@ -588,10 +588,9 @@ export async function registerRoutes(
         body: JSON.stringify({
           api_key: megapayApiKey,
           email: "",
-          amount: amountKes,
+          amount: String(amountKes),
           msisdn: normalizedPhone,
           reference,
-          callback: `${req.protocol}://${req.get("host")}/api/megapay/callback`,
         }),
       });
 
