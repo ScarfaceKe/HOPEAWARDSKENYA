@@ -587,7 +587,7 @@ export async function registerRoutes(
         },
         body: JSON.stringify({
           api_key: megapayApiKey,
-          email: "",
+          email: `${normalizedPhone}@voters.hopeawards.co.ke`,
           amount: String(amountKes),
           msisdn: normalizedPhone,
           reference,
