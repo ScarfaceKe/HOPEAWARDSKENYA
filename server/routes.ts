@@ -580,6 +580,13 @@ export async function registerRoutes(
         reference, Number(artistId), Number(votesAdded), amountKes, normalizedPhone
       ).catch(err => console.error("[PENDING] Failed to save pending payment:", err));
 
+      const megapayEmail = process.env.MEGAPAY_EMAIL || "";
+      if (!megapayEmail) {
+        console.error("[MEGAPAY] MEGAPAY_EMAIL env var not set!");
+        storage.deletePendingPayment(reference).catch(() => {});
+        return res.status(500).json({ message: "Payment system not configured (missing email)" });
+      }
+
       const response = await fetch("https://megapay.co.ke/backend/v1/initiatestk", {
         method: "POST",
         headers: {
@@ -587,7 +594,7 @@ export async function registerRoutes(
         },
         body: JSON.stringify({
           api_key: megapayApiKey,
-          email: `${normalizedPhone}@voters.hopeawards.co.ke`,
+          email: megapayEmail,
           amount: String(amountKes),
           msisdn: normalizedPhone,
           reference,
