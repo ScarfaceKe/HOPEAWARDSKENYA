@@ -145,7 +145,7 @@ export function Footer() {
                 </div>
                 <div className="min-w-0">
                   <p className="text-xs text-muted-foreground/70 uppercase tracking-wider">Voting Opens</p>
-                  <p className="text-sm text-white font-semibold">1st June 2026 · 6PM EAT</p>
+                  <p className="text-sm text-white font-semibold">1st August 2026 · 6PM EAT</p>
                 </div>
               </li>
               <li className="flex items-start gap-3">
@@ -154,7 +154,7 @@ export function Footer() {
                 </div>
                 <div className="min-w-0">
                   <p className="text-xs text-muted-foreground/70 uppercase tracking-wider">Awards Night</p>
-                  <p className="text-sm text-white font-semibold">Friday, 10th July 2026</p>
+                  <p className="text-sm text-white font-semibold">Friday, 4th December 2026</p>
                 </div>
               </li>
               <li className="flex items-start gap-3">

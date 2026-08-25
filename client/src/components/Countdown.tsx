@@ -75,16 +75,16 @@ function Dot({ color }: { color: "gold" | "green" }) {
 function Timeline({ phase }: { phase: "pre" | "open" }) {
   const steps = phase === "pre"
     ? [
-        { label: "Entries Open",     date: "Now → 1 Jun",       done: false,           active: true  },
-        { label: "Voting Opens",     date: "1 Jun · 6PM EAT",   done: false,           active: false },
-        { label: "Voting Closes",    date: "5 Jul · Midnight",  done: false,           active: false },
-        { label: "Awards Night",     date: "11 Jul 2026",       done: false,           active: false },
+        { label: "Entries Open",     date: "Now → 1 Aug",       done: false,           active: true  },
+        { label: "Voting Opens",     date: "1 Aug · 6PM EAT",   done: false,           active: false },
+        { label: "Voting Closes",    date: "31 Dec · Midnight",  done: false,           active: false },
+        { label: "Awards Night",     date: "4 Dec 2026",        done: false,           active: false },
       ]
     : [
-        { label: "Voting Opens",     date: "1 Jun · 6PM EAT",   done: true,            active: false },
-        { label: "Voting Now Live",  date: "Until 5 Jul",       done: false,           active: true  },
-        { label: "Voting Closes",    date: "5 Jul · Midnight",  done: false,           active: false },
-        { label: "Awards Night",     date: "11 Jul 2026",       done: false,           active: false },
+        { label: "Voting Opens",     date: "1 Aug · 6PM EAT",   done: true,            active: false },
+        { label: "Voting Now Live",  date: "Until 31 Dec",       done: false,           active: true  },
+        { label: "Voting Closes",    date: "31 Dec · Midnight",  done: false,           active: false },
+        { label: "Awards Night",     date: "4 Dec 2026",        done: false,           active: false },
       ];
 
   return (
@@ -194,7 +194,7 @@ export function Countdown() {
                   <Flame className="w-4 h-4 text-amber-400 animate-pulse" />
                 </div>
                 <p className="text-[10px] text-amber-500/50 font-semibold tracking-widest uppercase">
-                  1st June 2026 at 6:00 PM EAT
+                  1st August 2026 at 6:00 PM EAT
                 </p>
               </>
             ) : (
@@ -207,7 +207,7 @@ export function Countdown() {
                   <Zap className="w-4 h-4 text-green-400 animate-pulse" />
                 </div>
                 <p className="text-[10px] text-green-500/50 font-semibold tracking-widest uppercase">
-                  Midnight · 5th July 2026 EAT
+                  Midnight · 31st December 2026 EAT
                 </p>
               </>
             )}
