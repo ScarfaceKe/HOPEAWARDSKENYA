@@ -562,7 +562,7 @@ export async function registerRoutes(
     }
 
     const amountKes = votesAdded * 10;
-    const reference = `musicawards-${artistId}-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
+    const reference = `hopeawards-${artistId}-${Date.now()}-${crypto.randomBytes(2).toString("hex")}`;
 
     const megapayApiKey = process.env.MEGAPAY_API_KEY;
     if (!megapayApiKey) {
@@ -605,14 +605,15 @@ export async function registerRoutes(
 
       console.log(`[MEGAPAY-RESPONSE] ref=${reference}, fullResponse=${JSON.stringify(data)}`);
 
-      if (data.status !== "success") {
-        console.log(`[MEGAPAY-ERROR] ref=${reference}, status=${data.status}, message=${data.message}`);
+      // MegaPay returns { success: true, ResultCode: "0" } on success
+      if (data.success !== true && data.ResultCode !== "0") {
+        console.log(`[MEGAPAY-ERROR] ref=${reference}, ResultCode=${data.ResultCode}, message=${data.message}`);
         storage.deletePendingPayment(reference).catch(() => {});
         return res.status(400).json({ message: data.message || "Failed to initiate M-Pesa payment", megapayResponse: data });
       }
 
       return res.json({
-        checkout_id: data.checkout_id,
+        checkout_id: data.transaction_request_id || data.CheckoutRequestID,
         reference,
         status: "pending",
         message: "STK Push sent to your phone. Please enter your M-Pesa PIN to complete payment.",
@@ -656,13 +657,24 @@ export async function registerRoutes(
 
   app.post("/api/megapay/callback", async (req, res) => {
     // MegaPay callback for STK Push payment results
-    const { reference, status, checkout_id, result_code, result_desc } = req.body;
+    // MegaPay may send reference as 'reference', 'transaction_request_id', or nested in other fields
+    console.log(`[MEGAPAY CALLBACK RECEIVED] body=${JSON.stringify(req.body)}`);
+    
+    const reference = req.body.reference 
+      || req.body.transaction_request_id 
+      || req.body.data?.reference 
+      || req.body.data?.transaction_request_id;
+    const status = req.body.status || req.body.ResultCode;
+    const result_code = req.body.result_code || req.body.ResultCode;
+    const result_desc = req.body.result_desc || req.body.message;
 
     if (!reference) {
-      return res.status(400).json({ message: "Missing reference" });
+      console.warn(`[MEGAPAY CALLBACK] No reference found in callback body:`, JSON.stringify(req.body));
+      // Return 200 to MegaPay so it doesn't retry
+      return res.status(200).json({ status: "ok" });
     }
 
-    console.log(`[MEGAPAY CALLBACK] ref=${reference}, status=${status}, result_code=${result_code}`);
+    console.log(`[MEGAPAY CALLBACK] ref=${reference}, status=${status}, result_code=${result_code}, desc=${result_desc}`);
 
     if (status === "success" || result_code === "0") {
       try {
@@ -671,7 +683,7 @@ export async function registerRoutes(
           return res.status(200).json({ status: "already_recorded" });
         }
 
-        // Extract artistId and votes from reference: musicawards-{artistId}-{ts}-{hex}
+        // Extract artistId from reference: hopeawards-{artistId}-{ts}-{hex}
         const refParts = reference.split("-");
         const artistId = Number(refParts[1]);
 

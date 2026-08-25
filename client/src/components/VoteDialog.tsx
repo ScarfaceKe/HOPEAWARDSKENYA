@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { motion, AnimatePresence } from "framer-motion";
@@ -25,6 +25,8 @@ export function VoteDialog({ artistId, artistName, isOpen, onClose, onVoteSucces
   const [customVotes, setCustomVotes] = useState<string>("");
   const [phone, setPhone] = useState<string>("");
   const [isPending, setIsPending] = useState(false);
+  const [pollingStatus, setPollingStatus] = useState<string | null>(null);
+  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const { toast } = useToast();
 
   const RATE_PER_VOTE = 10;
@@ -36,9 +38,49 @@ export function VoteDialog({ artistId, artistName, isOpen, onClose, onVoteSucces
         setCustomVotes("");
         setPhone("");
         setIsPending(false);
+        setPollingStatus(null);
+        if (pollTimerRef.current) { clearInterval(pollTimerRef.current); pollTimerRef.current = null; }
       }, 300);
     }
   }, [isOpen]);
+
+  const startPolling = (reference: string, expectedVotes: number) => {
+    if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+    let attempts = 0;
+    const maxAttempts = 20; // poll every 3s for 60s
+
+    pollTimerRef.current = setInterval(async () => {
+      attempts++;
+      try {
+        const res = await fetch(`/api/megapay/status/${reference}`);
+        const data = await res.json();
+        if (data.status === "already_recorded" || data.status === "confirmed") {
+          // Vote was recorded!
+          if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+          setPollingStatus("confirmed");
+          toast({ title: "Vote Recorded!", description: `Your ${expectedVotes} vote(s) for this artist have been recorded. Thank you!`, variant: "default" });
+          sessionStorage.removeItem("pendingVote");
+          if (onVoteSuccess) onVoteSuccess();
+          setTimeout(() => { onClose(); }, 2000);
+        } else if (attempts >= maxAttempts) {
+          if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+          setPollingStatus("timeout");
+          toast({ title: "Payment Processing", description: "Your payment may still be processing. Check your M-Pesa messages and try refreshing the page in a few minutes.", variant: "default" });
+        }
+      } catch (err) {
+        if (attempts >= maxAttempts) {
+          if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+          setPollingStatus("timeout");
+        }
+      }
+    }, 3000);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+    };
+  }, []);
 
   const handleVoteSelect = (val: number) => { setVotes(val); setCustomVotes(""); };
 
@@ -67,10 +109,11 @@ export function VoteDialog({ artistId, artistName, isOpen, onClose, onVoteSucces
       const data = await res.json();
       if (!data.checkout_id && data.status !== "pending") throw new Error(data.message || "Failed to start payment");
       sessionStorage.setItem("pendingVote", JSON.stringify({ reference: data.reference, artistId, artistName, votes }));
-      // MegaPay uses STK Push - user pays on their phone, no redirect needed
       setIsPending(false);
+      setPollingStatus("polling");
       toast({ title: "M-Pesa Prompt Sent", description: "Check your phone for the M-Pesa payment prompt. Enter your PIN to complete the payment.", variant: "default" });
-      if (onVoteSuccess) onVoteSuccess();
+      // Start polling for vote confirmation
+      startPolling(data.reference, votes);
     } catch (err: any) {
       setIsPending(false);
       toast({ title: "Payment Failed", description: err.message || "Could not start payment. Try again.", variant: "destructive" });
@@ -174,26 +217,43 @@ export function VoteDialog({ artistId, artistName, isOpen, onClose, onVoteSucces
 
             <button
               onClick={handleSubmit}
-              disabled={isPending || votes <= 0}
+              disabled={isPending || votes <= 0 || pollingStatus === "polling"}
               data-testid="button-pay"
               className={`w-full py-5 rounded-xl font-display text-2xl tracking-widest flex items-center justify-center gap-3 transition-all duration-300
-                ${isPending || votes <= 0
+                ${isPending || votes <= 0 || pollingStatus === "polling"
                   ? "bg-white/5 text-white/30 cursor-not-allowed"
                   : "bg-primary text-black hover:bg-primary/90 neon-box-gold hover:scale-[1.02] active:scale-95"}`}
             >
-              {isPending ? (
+              {pollingStatus === "confirmed" ? (
+                <span className="text-lg text-emerald-400">✓ VOTE RECORDED</span>
+              ) : pollingStatus === "polling" ? (
                 <>
                   <Loader2 className="w-6 h-6 animate-spin" />
-                  <span className="text-lg text-white">Redirecting to payment...</span>
+                  <span className="text-lg text-white">Confirming payment...</span>
+                </>
+              ) : isPending ? (
+                <>
+                  <Loader2 className="w-6 h-6 animate-spin" />
+                  <span className="text-lg text-white">Sending M-Pesa prompt...</span>
                 </>
               ) : (
                 <>PAY <span className="text-white ml-1">{totalCost.toLocaleString()} KES</span></>
               )}
             </button>
 
-            {isPending && (
+            {pollingStatus === "polling" && (
               <p className="text-center text-xs text-muted-foreground mt-3">
-                Sending M-Pesa payment prompt to your phone...
+                ✓ M-Pesa prompt sent — enter your PIN on your phone to complete.
+              </p>
+            )}
+            {pollingStatus === "confirmed" && (
+              <p className="text-center text-xs text-emerald-400 mt-3">
+                🎉 Your vote has been recorded successfully!
+              </p>
+            )}
+            {pollingStatus === "timeout" && (
+              <p className="text-center text-xs text-amber-400 mt-3">
+                Payment may still be processing. Check your M-Pesa messages.
               </p>
             )}
           </motion.div>
