@@ -660,13 +660,17 @@ export async function registerRoutes(
     // MegaPay may send reference as 'reference', 'transaction_request_id', or nested in other fields
     console.log(`[MEGAPAY CALLBACK RECEIVED] body=${JSON.stringify(req.body)}`);
     
+    // MegaPay PascalCase: TransactionReference, ResponseCode, etc.
     const reference = req.body.reference 
+      || req.body.TransactionReference
+      || req.body.transaction_reference
       || req.body.transaction_request_id 
       || req.body.data?.reference 
+      || req.body.data?.TransactionReference
       || req.body.data?.transaction_request_id;
-    const status = req.body.status || req.body.ResultCode;
-    const result_code = req.body.result_code || req.body.ResultCode;
-    const result_desc = req.body.result_desc || req.body.message;
+    const status = req.body.status || req.body.ResultCode || req.body.ResponseCode;
+    const result_code = req.body.result_code ?? req.body.ResultCode ?? req.body.ResponseCode;
+    const result_desc = req.body.result_desc || req.body.ResponseDescription || req.body.message;
 
     if (!reference) {
       console.warn(`[MEGAPAY CALLBACK] No reference found in callback body:`, JSON.stringify(req.body));
@@ -676,7 +680,7 @@ export async function registerRoutes(
 
     console.log(`[MEGAPAY CALLBACK] ref=${reference}, status=${status}, result_code=${result_code}, desc=${result_desc}`);
 
-    if (status === "success" || result_code === "0") {
+    if (status === "success" || result_code === "0" || result_code === 0 || result_code === "0000") {
       try {
         const existing = await storage.getVoteByReference(reference);
         if (existing) {
@@ -705,7 +709,7 @@ export async function registerRoutes(
           return res.status(200).json({ status: "no_pending" });
         }
 
-        const voterPhone = req.body.phone || pending.voterPhone;
+        const voterPhone = req.body.Msisdn || req.body.msisdn || req.body.phone || pending.voterPhone;
 
         await storage.createVote({
           artistId,
