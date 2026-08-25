@@ -596,9 +596,11 @@ export async function registerRoutes(
 
       const data = await response.json();
 
+      console.log(`[MEGAPAY] ref=${reference}, status=${data.status}, response=`, JSON.stringify(data));
+
       if (data.status !== "success") {
         storage.deletePendingPayment(reference).catch(() => {});
-        return res.status(400).json({ message: data.message || "Failed to initiate M-Pesa payment" });
+        return res.status(400).json({ message: data.message || "Failed to initiate M-Pesa payment", details: data });
       }
 
       return res.json({
