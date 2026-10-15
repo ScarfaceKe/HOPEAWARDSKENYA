@@ -1,6 +1,6 @@
 import { build as esbuild } from "esbuild";
 import { build as viteBuild } from "vite";
-import { rm, readFile } from "fs/promises";
+import { rm, readFile, cp, readdir } from "fs/promises";
 
 // server deps to bundle to reduce openat(2) syscalls
 // which helps cold start times
@@ -37,6 +37,19 @@ async function buildAll() {
 
   console.log("building client...");
   await viteBuild();
+
+  // Static hosts serve the dist/ directory directly, so mirror the client
+  // build (dist/public) into the dist/ root. The Express server (bundled
+  // afterwards) keeps reading dist/public, so Node hosts are unaffected.
+  try {
+    const files = await readdir("dist/public");
+    if (files.length === 0) throw new Error("client build output is empty");
+    await cp("dist/public", "dist", { recursive: true });
+    console.log("mirroring client output to dist/ root for static hosting...");
+  } catch (err) {
+    console.error("client build failed or produced no output:", err);
+    process.exit(1);
+  }
 
   console.log("building server...");
   const pkg = JSON.parse(await readFile("package.json", "utf-8"));

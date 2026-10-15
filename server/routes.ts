@@ -306,7 +306,7 @@ export async function registerRoutes(
   });
 
   app.patch("/api/artists/:id/bio", requireAdmin, async (req, res) => {
-    const id = parseInt(req.params.id, 10);
+    const id = parseInt(String(req.params.id), 10);
     const bio = typeof req.body.bio === "string" ? req.body.bio : "";
     if (isNaN(id)) return res.status(400).json({ message: "Invalid artist id" });
     const updated = await storage.updateArtistBio(id, bio);
@@ -325,7 +325,7 @@ export async function registerRoutes(
   });
 
   app.patch("/api/admin/artists/:id", requireAdmin, async (req, res) => {
-    const id = parseInt(req.params.id, 10);
+    const id = parseInt(String(req.params.id), 10);
     if (isNaN(id)) return res.status(400).json({ message: "Invalid artist id" });
     const name = typeof req.body.name === "string" ? req.body.name.trim() : "";
     const imageUrl = typeof req.body.imageUrl === "string" ? req.body.imageUrl.trim() : "";
@@ -458,7 +458,9 @@ export async function registerRoutes(
       return res.status(429).json({ message: "Too many uploads. Please try again later." });
     }
 
-    const token = req.headers["x-upload-token"] as string | undefined;
+    const token = Array.isArray(req.headers["x-upload-token"])
+      ? req.headers["x-upload-token"][0]
+      : req.headers["x-upload-token"];
     if (!token) {
       return res.status(403).json({ message: "Upload token required" });
     }
@@ -626,7 +628,7 @@ export async function registerRoutes(
   });
 
   app.get("/api/megapay/status/:reference", async (req, res) => {
-    const { reference } = req.params;
+    const reference = String(req.params.reference);
 
     const existing = await storage.getVoteByReference(reference);
     if (existing) {
@@ -769,7 +771,7 @@ export async function registerRoutes(
   });
 
   app.get("/api/requests/:id/public", noCache, async (req, res) => {
-    const id = parseInt(req.params.id, 10);
+    const id = parseInt(String(req.params.id), 10);
     if (Number.isNaN(id)) return res.status(400).json({ message: "Invalid id" });
     const r = await storage.getRequest(id);
     if (!r || r.status !== "approved") return res.status(404).json({ message: "Not found" });
@@ -945,7 +947,7 @@ export async function registerRoutes(
   });
 
   app.post("/api/admin/pending-payments/:reference/recover", requireAdmin, async (req, res) => {
-    const { reference } = req.params;
+    const reference = String(req.params.reference);
     const megapayApiKey = process.env.MEGAPAY_API_KEY;
     if (!megapayApiKey) return res.status(500).json({ message: "Payment system not configured" });
 
@@ -978,7 +980,7 @@ export async function registerRoutes(
   });
 
   app.delete("/api/admin/pending-payments/:reference", requireAdmin, async (req, res) => {
-    await storage.deletePendingPayment(req.params.reference);
+    await storage.deletePendingPayment(String(req.params.reference));
     res.json({ status: "deleted" });
   });
 
