@@ -322,7 +322,7 @@ export default function NominateArtist() {
     const shareMessage = shareUrl
       ? (votingOpen
           ? `🏆 Vote for ${subSubject} in the ${subCategoryName} at Hope Awards Kenya 2026 — voting is OPEN! 1 vote = 10 KES. ${shareUrl}`
-          : `🏆 ${subIsSong ? subSubject + " is" : "I'm"} a Hope Awards Kenya 2026 nominee for ${subCategoryName}! Voting opens Mon 1st June 2026 at 6PM EAT. Bookmark and vote when it goes live: ${shareUrl}`)
+          : `🏆 ${subIsSong ? subSubject + " is" : "I'm"} a Hope Awards Kenya 2026 nominee for ${subCategoryName}! Voting opens 25th October 2026 (12:00 AM EAT). Bookmark and vote when it goes live: ${shareUrl}`)
       : "";
     const whatsappHref = shareMessage ? `https://wa.me/?text=${encodeURIComponent(shareMessage)}` : "#";
 
@@ -406,7 +406,7 @@ export default function NominateArtist() {
             </div>
             <div className="flex items-start gap-3 text-sm text-muted-foreground">
               <span className="text-amber-400 font-bold shrink-0">3.</span>
-              <span>Fans can then vote for you starting <span className="text-primary font-bold">1st June 2026</span></span>
+              <span>Fans can then vote for you starting <span className="text-primary font-bold">25th October 2026</span></span>
             </div>
             <div className="flex items-start gap-3 text-sm text-muted-foreground">
               <span className="text-amber-400 font-bold shrink-0">4.</span>
@@ -649,7 +649,7 @@ export default function NominateArtist() {
             </button>
 
             <p className="text-center text-xs text-muted-foreground/50">
-              Your nomination will be reviewed and approved by the admin. Once approved, fans can vote for you starting <strong className="text-primary">1st June 2026</strong>.
+              Your nomination will be reviewed and approved by the admin. Once approved, fans can vote for you starting <strong className="text-primary">25th October 2026</strong>.
             </p>
           </form>
         </motion.div>

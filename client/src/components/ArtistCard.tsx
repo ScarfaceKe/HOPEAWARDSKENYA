@@ -18,7 +18,7 @@ export function ArtistCard({ artist }: ArtistCardProps) {
 
   const artistUrl = `${window.location.origin}/artist/${artist.id}`;
   const fullCatForShare = CATEGORIES.find((c: any) => c.id === artist.category)?.name || "";
-  const waShareMsg = encodeURIComponent(`🎵 Vote for ${artist.name} - ${fullCatForShare} at Hope Awards Kenya 2026!\n\n👉 ${artistUrl}\n\n1 Vote = 10 KES via M-Pesa. Awards night Friday 10 July 2026. #HopeAwardsKenya`);
+  const waShareMsg = encodeURIComponent(`🎵 Vote for ${artist.name} - ${fullCatForShare} at Hope Awards Kenya 2026!\n\n👉 ${artistUrl}\n\n1 Vote = 10 KES via M-Pesa. Awards night date TBA. #HopeAwardsKenya`);
 
   const handleShare = async () => {
     if (navigator.share) {

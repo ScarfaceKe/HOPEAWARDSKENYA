@@ -14,7 +14,7 @@ function NominationShareBanner() {
   const nominationUrl = `${window.location.origin}/nominate`;
 
   const waMessage = encodeURIComponent(
-    `🎵 *HOPE AWARDS KENYA 2026* 🏆\n\nAre you an Artist, DJ or MC? Now is your chance!\n\n👉 Nominate yourself here:\n${nominationUrl}\n\nVoting is LIVE. Awards night is *Friday, 4th December 2026*.\n\n🌟 Share with every artist you know!`
+    `🎵 *HOPE AWARDS KENYA 2026* 🏆\n\nAre you an Artist, DJ or MC? Now is your chance!\n\n👉 Nominate yourself here:\n${nominationUrl}\n\nVoting opens 25th October 2026. Awards night date to be announced.\n\n🌟 Share with every artist you know!`
   );
   const waLink = `https://wa.me/?text=${waMessage}`;
 
@@ -195,18 +195,20 @@ export default function Home() {
       categoryCounts[item.id] = item.approved;
     }
   }
+  // A category goes public once at least two nominees are approved in it.
+  const CATEGORY_PUBLIC_THRESHOLD = 2;
   const activeCategories = capacityData
-    ? CATEGORIES.filter((c: any) => (categoryCounts[c.id] ?? 0) >= 1)
+    ? CATEGORIES.filter((c: any) => (categoryCounts[c.id] ?? 0) >= CATEGORY_PUBLIC_THRESHOLD)
     : [];
 
   const heroBadge = phase === "pre"
-    ? { color: "accent", text: "Nominations Open — Voting Live Now" }
+    ? { color: "accent", text: "Nominations Open — Voting Starts 25 Oct" }
     : phase === "open"
     ? { color: "secondary", text: "Live Voting Open" }
     : { color: "primary", text: "🏆 Results Are Out — Hall of Fame Now Open!" };
 
   const heroDesc = phase === "pre"
-    ? "Nominate yourself or your favourite artist now. Voting is live! 1 Vote = 10 KES."
+    ? "Nominate yourself or your favourite artist now. Voting starts 25th October 2026 at midnight. 1 Vote = 10 KES."
     : phase === "open"
     ? "Vote for the best Artists, DJs, MCs & more. Pick a category and back your favourite. 1 Vote = 10 KES."
     : "The votes have been counted. The winners have been crowned. See who won across every category in the Hope Awards Kenya 2026 Hall of Fame.";
@@ -339,9 +341,9 @@ export default function Home() {
                   <span className="text-secondary font-bold text-xs uppercase tracking-widest">Awards Night</span>
                 </div>
                 <h2 className="font-display text-3xl md:text-5xl text-white leading-tight mb-2">
-                  FRIDAY,{" "}
+                  AWARDS NIGHT —{" "}
                   <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary via-accent to-secondary neon-text-gold">
-                    4TH DECEMBER 2026
+                    DATE TO BE ANNOUNCED
                   </span>
                 </h2>
                 <div className="flex flex-col sm:flex-row items-center md:items-start gap-3 mt-3 justify-center md:justify-start">
@@ -359,8 +361,9 @@ export default function Home() {
 
               {/* Badge */}
               <div className="shrink-0 flex flex-col items-center gap-1 px-6 py-4 rounded-2xl bg-black/40 border border-primary/30">
-                <span className="font-display text-xs text-primary uppercase tracking-widest">Save the</span>
-                <span className="font-display text-4xl text-white leading-none">10</span>                    <span className="font-display text-xs text-white/60 uppercase tracking-widest">December 2026</span>
+                <span className="font-display text-xs text-primary uppercase tracking-widest">Voting starts</span>
+                <span className="font-display text-4xl text-white leading-none">25</span>
+                <span className="font-display text-xs text-white/60 uppercase tracking-widest">October 2026</span>
               </div>
             </div>
           </div>

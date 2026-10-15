@@ -75,16 +75,16 @@ function Dot({ color }: { color: "gold" | "green" }) {
 function Timeline({ phase }: { phase: "pre" | "open" }) {
   const steps = phase === "pre"
     ? [
-        { label: "Entries Open",     date: "Now → 1 Aug",       done: false,           active: true  },
-        { label: "Voting Opens",     date: "1 Aug · 6PM EAT",   done: false,           active: false },
-        { label: "Voting Closes",    date: "31 Dec · Midnight",  done: false,           active: false },
-        { label: "Awards Night",     date: "4 Dec 2026",        done: false,           active: false },
+        { label: "Entries Open",     date: "Now → 24 Oct",        done: false,           active: true  },
+        { label: "Voting Opens",     date: "25 Oct · Midnight",   done: false,           active: false },
+        { label: "Voting Closes",    date: "6 Dec · 00:15",       done: false,           active: false },
+        { label: "Awards Night",     date: "Date TBA",            done: false,           active: false },
       ]
     : [
-        { label: "Voting Opens",     date: "1 Aug · 6PM EAT",   done: true,            active: false },
-        { label: "Voting Now Live",  date: "Until 31 Dec",       done: false,           active: true  },
-        { label: "Voting Closes",    date: "31 Dec · Midnight",  done: false,           active: false },
-        { label: "Awards Night",     date: "4 Dec 2026",        done: false,           active: false },
+        { label: "Voting Opens",     date: "25 Oct · Midnight",   done: true,            active: false },
+        { label: "Voting Now Live",  date: "Until 6 Dec · 00:15", done: false,           active: true  },
+        { label: "Voting Closes",    date: "6 Dec · 00:15",       done: false,           active: false },
+        { label: "Awards Night",     date: "Date TBA",            done: false,           active: false },
       ];
 
   return (
@@ -154,8 +154,7 @@ export function Countdown() {
           <Trophy className="w-10 h-10 text-primary animate-bounce" />
           <p className="font-display text-2xl text-primary neon-text-gold">VOTING HAS CLOSED</p>
           <p className="text-muted-foreground text-sm">The votes are in — results being finalised.</p>
-        </div>
-        <div className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-primary/10 border border-primary/30">
+        </div>          <div className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-primary/10 border border-primary/30">
           <Trophy className="w-4 h-4 text-primary" />
           <span className="text-primary font-bold tracking-wider text-sm">
             Awards Ceremony — {AWARDS_DATE}
@@ -194,7 +193,7 @@ export function Countdown() {
                   <Flame className="w-4 h-4 text-amber-400 animate-pulse" />
                 </div>
                 <p className="text-[10px] text-amber-500/50 font-semibold tracking-widest uppercase">
-                  1st August 2026 at 6:00 PM EAT
+                  25th October 2026 · 12:00 AM (Midnight) EAT
                 </p>
               </>
             ) : (
@@ -207,7 +206,7 @@ export function Countdown() {
                   <Zap className="w-4 h-4 text-green-400 animate-pulse" />
                 </div>
                 <p className="text-[10px] text-green-500/50 font-semibold tracking-widest uppercase">
-                  Midnight · 31st December 2026 EAT
+                  6th December 2026 · 00:15 EAT
                 </p>
               </>
             )}

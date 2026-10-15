@@ -546,7 +546,7 @@ export async function registerRoutes(
     const now = Date.now();
 
     if (now < VOTING_START) {
-      return res.status(403).json({ message: "Voting has not started yet. Voting opens 1st June 2026 at 8:00 PM EAT." });
+      return res.status(403).json({ message: "Voting has not started yet. Voting opens 25th October 2026 at 12:00 AM (midnight) EAT." });
     }
     if (now > VOTING_END) {
       return res.status(403).json({ message: "Voting has closed. Thank you for participating in Hope Awards Kenya 2026." });

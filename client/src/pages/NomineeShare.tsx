@@ -63,7 +63,7 @@ export default function NomineeShare() {
     ? `🏆 Vote for ${subject} in the ${categoryName} at Hope Awards Kenya 2026 — voting is OPEN! 1 vote = 10 KES. ${shareUrl}`
     : votingClosed
     ? `🏆 ${subject} was nominated for ${categoryName} at Hope Awards Kenya 2026. Awards night ${AWARDS_DATE}. ${shareUrl}`
-    : `🏆 ${isSong ? `${subject} is` : "I'm"} a Hope Awards Kenya 2026 nominee for ${categoryName}! Voting opens Monday 1st June 2026 at 6PM EAT. Bookmark and vote when it goes live: ${shareUrl}`;
+    : `🏆 ${isSong ? `${subject} is` : "I'm"} a Hope Awards Kenya 2026 nominee for ${categoryName}! Voting opens 25th October 2026 (12:00 AM EAT). Bookmark and vote when it goes live: ${shareUrl}`;
   const whatsappHref = `https://wa.me/?text=${encodeURIComponent(shareMessage)}`;
   const categoryHref = `/category/${data.category}`;
 
@@ -133,7 +133,7 @@ export default function NomineeShare() {
                   ? "Voting is OPEN — vote now"
                   : votingClosed
                   ? `Voting closed · Awards night ${AWARDS_DATE}`
-                  : "Voting opens Mon 1st June 2026 · 6PM EAT"}
+                  : "Voting opens 25th October 2026 · 12:00 AM EAT"}
               </span>
             </div>
 

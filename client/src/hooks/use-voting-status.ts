@@ -1,8 +1,7 @@
 import { useState, useEffect } from "react";
+import { VOTING_START, VOTING_END, AWARDS_DATE } from "@shared/dates";
 
-export const VOTING_START = new Date("2026-08-01T18:00:00+03:00").getTime();
-export const VOTING_END   = new Date("2026-12-31T23:59:59+03:00").getTime();
-export const AWARDS_DATE  = "Friday, 4th December 2026";
+export { VOTING_START, VOTING_END, AWARDS_DATE };
 
 export type VotingPhase = "pre" | "open" | "closed";
 
