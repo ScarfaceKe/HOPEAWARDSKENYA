@@ -107,7 +107,10 @@ export const insertArtistSchema = createInsertSchema(artists).omit({
   id: true,
   totalVotes: true,
   displayOrder: true,
-});
+}).refine(
+  (a) => CATEGORIES.some((c) => c.id === a.category),
+  { message: "Invalid category", path: ["category"] },
+);
 
 export const votes = pgTable("votes", {
   id: serial("id").primaryKey(),
@@ -139,7 +142,10 @@ export const insertRequestSchema = createInsertSchema(requests).omit({
   id: true,
   status: true,
   createdAt: true,
-});
+}).refine(
+  (r) => CATEGORIES.some((c) => c.id === r.category),
+  { message: "Invalid category", path: ["category"] },
+);
 
 export type Artist = typeof artists.$inferSelect;
 export type InsertArtist = z.infer<typeof insertArtistSchema>;
