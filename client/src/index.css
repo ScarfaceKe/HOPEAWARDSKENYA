@@ -94,8 +94,9 @@
     .hover\:scale-105:hover,
     .hover\:scale-110:hover { transform: none !important; }
 
-    /* Kill the tiled grid background */
+    /* Kill the tiled grid + aurora blobs */
     .bg-grid-pattern { background-image: none !important; }
+    .aurora-blob { display: none !important; }
 
     /* Kill backdrop-filter (frosted glass) */
     .backdrop-blur-sm, .backdrop-blur, .backdrop-blur-md, .backdrop-blur-lg, .backdrop-blur-xl {
@@ -176,8 +177,20 @@
        Same treatment as the landing page, just for colored layers. */
 
     /* Red (reject / destructive) */
-    .bg-red-500\/5  { background-color: #191114 !important; }
-    .bg-red-500\/20 { background-color: #3b191b !important; }
+    /* Glass system: flatten to solid so Mali GPUs never tear */
+    .glass, .glass-strong, .glass-gold, .glass-green {
+      backdrop-filter: none !important;
+      -webkit-backdrop-filter: none !important;
+      background: #15151a !important;
+    }
+    .glass-gold  { background: #26200f !important; }
+    .glass-green { background: #10250f !important; }
+    .glass-gold  { border-color: #8a6a20 !important; }
+    .glass-green { border-color: #2a6622 !important; }
+    .glass, .glass-strong { border-color: #1f1f1f !important; }
+    .glass-sheen::before { display: none !important; }
+    .aurora-slow { animation: none !important; }
+    .btn-shine::after { display: none !important; }
     .bg-red-500\/30 { background-color: #521e20 !important; }
     .bg-red-500\/90 { background-color: #d83f3f !important; }
 
@@ -230,6 +243,80 @@
   
   .clip-path-slant-button {
     clip-path: polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%);
+  }
+
+  /* ── Glassmorphism design system ───────────────────────────── */
+  .glass {
+    background: rgba(255, 255, 255, 0.045);
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    backdrop-filter: blur(18px) saturate(140%);
+    -webkit-backdrop-filter: blur(18px) saturate(140%);
+  }
+  .glass-strong {
+    background: rgba(255, 255, 255, 0.07);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    backdrop-filter: blur(26px) saturate(150%);
+    -webkit-backdrop-filter: blur(26px) saturate(150%);
+  }
+  .glass-gold {
+    background: linear-gradient(135deg, rgba(217, 161, 12, 0.13), rgba(217, 161, 12, 0.03));
+    border: 1px solid rgba(217, 161, 12, 0.35);
+    backdrop-filter: blur(18px) saturate(140%);
+    -webkit-backdrop-filter: blur(18px) saturate(140%);
+  }
+  .glass-green {
+    background: linear-gradient(135deg, rgba(52, 211, 25, 0.12), rgba(52, 211, 25, 0.03));
+    border: 1px solid rgba(52, 211, 25, 0.35);
+    backdrop-filter: blur(18px) saturate(140%);
+    -webkit-backdrop-filter: blur(18px) saturate(140%);
+  }
+  /* Sheen strip along the top edge of glass cards */
+  .glass-sheen {
+    position: relative;
+    overflow: hidden;
+  }
+  .glass-sheen::before {
+    content: "";
+    position: absolute;
+    top: 0; left: 8%; right: 8%;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.35), transparent);
+    pointer-events: none;
+  }
+  /* Aurora background blobs — pure CSS, GPU-composited but cheap */
+  .aurora-blob {
+    position: absolute;
+    border-radius: 9999px;
+    filter: blur(90px);
+    pointer-events: none;
+  }
+  .aurora-slow {
+    animation: auroraDrift 14s ease-in-out infinite alternate;
+  }
+
+  @keyframes auroraDrift {
+    0%   { transform: translate(0, 0) scale(1); }
+    50%  { transform: translate(40px, -30px) scale(1.08); }
+    100% { transform: translate(-30px, 25px) scale(0.96); }
+  }
+
+  @keyframes shimmerSweep {
+    0%   { transform: translateX(-100%); }
+    100% { transform: translateX(200%); }
+  }
+  /* Slow diagonal shine sweeping across the primary CTA */
+  .btn-shine {
+    position: relative;
+    overflow: hidden;
+  }
+  .btn-shine::after {
+    content: "";
+    position: absolute;
+    top: 0; bottom: 0;
+    width: 40%;
+    background: linear-gradient(105deg, transparent, rgba(255,255,255,0.45), transparent);
+    animation: shimmerSweep 3.2s ease-in-out infinite;
+    pointer-events: none;
   }
 
   .vote-bounce {

@@ -1,6 +1,6 @@
 import { Link, useLocation } from "wouter";
 import { motion } from "framer-motion";
-import { Trophy, ArrowRight, Crown, Disc3, Mic2, Star, Users, Music2, Heart, Radio, Sparkles, Share2, Copy, CheckCheck, Tv, Video, Camera, Film, Scissors, Wand2, Cake, Flame, Globe, MapPin, Zap, BookOpen, PartyPopper, CalendarDays, Laugh, Headphones, Palette, Guitar, Piano } from "lucide-react";
+import { Trophy, ArrowRight, Crown, Disc3, Mic2, Star, Users, Music2, Heart, Radio, Sparkles, Copy, CheckCheck, Tv, Video, Camera, Film, Scissors, Wand2, Palette, Flame, Globe, MapPin, Zap, BookOpen, PartyPopper, CalendarDays, Laugh, Headphones, Guitar, Piano, Vote, Send, Smartphone, PlayCircle } from "lucide-react";
 import { CATEGORIES } from "@shared/schema";
 import { Countdown } from "@/components/Countdown";
 import { useVotingStatus } from "@/hooks/use-voting-status";
@@ -29,20 +29,21 @@ function NominationShareBanner() {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.2 }}
-      className="py-12 border-b border-white/5"
+      className="py-12"
     >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="relative rounded-3xl overflow-hidden border border-primary/30 bg-gradient-to-r from-primary/10 via-accent/10 to-secondary/10 p-8 md:p-10">
-          <div className="absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent pointer-events-none" />
+        <div className="relative rounded-3xl glass-strong glass-sheen overflow-hidden p-8 md:p-10">
+          <div className="absolute -top-20 -right-10 w-64 h-64 aurora-blob bg-accent/25 aurora-slow" />
+          <div className="absolute -bottom-24 -left-16 w-72 h-72 aurora-blob bg-secondary/20" />
 
           <div className="relative z-10 flex flex-col md:flex-row items-center gap-8">
             <div className="text-center md:text-left flex-1">
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/20 border border-primary/30 mb-4">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full glass-gold mb-4 shadow-none">
                 <Mic2 className="w-3 h-3 text-primary" />
                 <span className="text-primary font-bold text-xs uppercase tracking-widest">Artists, DJs & MCs</span>
               </div>
               <h2 className="font-display text-3xl md:text-4xl text-white mb-3">
-                NOMINATE YOURSELF
+                NOMINATE <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary to-secondary">YOURSELF</span>
               </h2>
               <p className="text-muted-foreground text-lg leading-relaxed max-w-xl">
                 Are you an artist, DJ or MC? Submit your own nomination now — voting is live! Share this link with every artist you know.
@@ -63,7 +64,7 @@ function NominationShareBanner() {
                 SHARE ON WHATSAPP
               </a>
 
-              <div className="flex items-center gap-2 w-full md:w-auto bg-black/40 border border-white/10 rounded-xl px-4 py-3">
+              <div className="flex items-center gap-2 w-full md:w-auto glass rounded-xl px-4 py-3">
                 <span className="text-muted-foreground text-sm font-mono truncate flex-1 max-w-[200px]">
                   {nominationUrl}
                 </span>
@@ -160,17 +161,6 @@ const groupColors: Record<string, string> = {
   "Special Recognition":            "from-amber-400 to-yellow-600",
 };
 
-const groupNeon: Record<string, string> = {
-  "Main Awards":                    "neon-box-gold",
-  "Media & Entertainment":          "neon-box-teal",
-  "Performance & Creative":         "neon-box-teal",
-  "Production & Behind the Scenes": "neon-box-teal",
-  "Creative & Fashion":             "neon-box-gold",
-  "Special Music":                  "neon-box-green",
-  "Regional & Cultural":            "neon-box-gold",
-  "Special Recognition":            "neon-box-gold",
-};
-
 const groupIconMap: Record<string, any> = {
   "Main Awards":                    Trophy,
   "Media & Entertainment":          Tv,
@@ -182,6 +172,54 @@ const groupIconMap: Record<string, any> = {
   "Special Recognition":            Crown,
 };
 
+function HowItWorks() {
+  const steps = [
+    { icon: Vote,    tint: "gold",  title: "PICK A CATEGORY",   desc: "60+ award categories across music, media, fashion, production and culture." },
+    { icon: Smartphone, tint: "accent", title: "PAY 10 KES",     desc: "One vote costs just 10 shillings via MegaPay. Vote as many times as you like." },
+    { icon: Flame,  tint: "green", title: "RALLY YOUR FANS",   desc: "Share your profile link. Every vote pushes you closer to the trophy." },
+  ] as const;
+
+  const tintClass = {
+    gold:   "glass-gold",
+    accent: "glass-strong",
+    green:  "glass-green",
+  } as const;
+
+  return (
+    <section className="pb-24 relative">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="flex items-center justify-center gap-3 mb-12">
+          <span className="h-px w-16 bg-gradient-to-r from-transparent to-white/20" />
+          <h2 className="font-display text-2xl md:text-3xl text-white tracking-widest text-center">HOW IT <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary to-secondary">WORKS</span></h2>
+          <span className="h-px w-16 bg-gradient-to-l from-transparent to-white/20" />
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+          {steps.map((s, i) => (
+            <motion.div
+              key={s.title}
+              initial={{ opacity: 0, y: 24 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, margin: "-60px" }}
+              transition={{ delay: i * 0.12, duration: 0.5 }}
+              className={`relative rounded-3xl ${tintClass[s.tint]} glass-sheen p-8 text-center`}
+            >
+              <div className="w-16 h-16 mx-auto mb-5 rounded-2xl flex items-center justify-center"
+                style={{
+                  background: s.tint === "gold" ? "rgba(217,161,12,0.15)" : s.tint === "green" ? "rgba(52,211,25,0.15)" : "rgba(0,188,163,0.15)",
+                  border: `1px solid ${s.tint === "gold" ? "rgba(217,161,12,0.4)" : s.tint === "green" ? "rgba(52,211,25,0.4)" : "rgba(0,188,163,0.4)"}`,
+                }}>
+                <s.icon className={`w-8 h-8 ${s.tint === "gold" ? "text-primary" : s.tint === "green" ? "text-secondary" : "text-accent"}`} />
+              </div>
+              <span className="absolute top-5 right-6 font-display text-4xl text-white/10 select-none">0{i + 1}</span>
+              <h3 className="font-display text-lg text-white mb-2">{s.title}</h3>
+              <p className="text-muted-foreground text-sm leading-relaxed">{s.desc}</p>
+            </motion.div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
 
 export default function Home() {
   const { phase } = useVotingStatus();
@@ -202,10 +240,10 @@ export default function Home() {
     : [];
 
   const heroBadge = phase === "pre"
-    ? { color: "accent", text: "Nominations Open — Voting Starts 25 Oct" }
+    ? { text: "Nominations Open — Voting Starts 25 Oct" }
     : phase === "open"
-    ? { color: "secondary", text: "Live Voting Open" }
-    : { color: "primary", text: "🏆 Results Are Out — Hall of Fame Now Open!" };
+    ? { text: "Live Voting Open" }
+    : { text: "🏆 Results Are Out — Hall of Fame Now Open!" };
 
   const heroDesc = phase === "pre"
     ? "Nominate yourself or your favourite artist now. Voting starts 25th October 2026 at midnight. 1 Vote = 10 KES."
@@ -213,12 +251,42 @@ export default function Home() {
     ? "Vote for the best Artists, DJs, MCs & more. Pick a category and back your favourite. 1 Vote = 10 KES."
     : "The votes have been counted. The winners have been crowned. See who won across every category in the Hope Awards Kenya 2026 Hall of Fame.";
 
+  const totalContenders = activeCategories.reduce((acc: number, c: any) => acc + (categoryCounts[c.id] ?? 0), 0);
+
   return (
-    <div className="min-h-screen bg-grid-pattern">
-      <section className="relative pt-20 pb-28 overflow-hidden border-b border-white/5">
-        <div className="absolute inset-0 z-0">
-          <div className="absolute inset-0 bg-gradient-to-b from-background/40 via-background/80 to-background" />
+    <div className="min-h-screen">
+
+      {/* ═══════════ HERO — layered aurora glass ═══════════ */}
+      <section className="relative pt-20 pb-28">
+        {/* aurora field */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none" aria-hidden="true">
+          <div className="absolute -top-32 -left-32 w-[34rem] h-[34rem] rounded-full aurora-blob aurora-slow" style={{ background: "radial-gradient(circle, rgba(217,161,12,0.22), transparent 65%)" }} />
+          <div className="absolute top-40 -right-40 w-[30rem] h-[30rem] rounded-full aurora-blob" style={{ background: "radial-gradient(circle, rgba(0,188,163,0.20), transparent 65%)" }} />
+          <div className="absolute -bottom-56 left-1/3 w-[36rem] h-[36rem] rounded-full aurora-blob" style={{ background: "radial-gradient(circle, rgba(52,211,25,0.14), transparent 65%)" }} />
+          <div className="absolute top-1/3 left-1/4 w-72 h-72 rounded-full aurora-blob" style={{ background: "radial-gradient(circle, rgba(168,85,247,0.16), transparent 65%)" }} />
         </div>
+        {/* floating glass orbs near the headline */}
+        <motion.div
+          aria-hidden="true"
+          initial={{ opacity: 0, scale: 0.6 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ delay: 0.7, duration: 0.6 }}
+          className="hidden lg:block absolute top-40 left-[8%] w-24 h-24 rounded-3xl glass glass-sheen rotate-12 pointer-events-none"
+        />
+        <motion.div
+          aria-hidden="true"
+          initial={{ opacity: 0, scale: 0.6 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ delay: 0.9, duration: 0.6 }}
+          className="hidden lg:block absolute top-72 right-[10%] w-16 h-16 rounded-2xl glass-gold rotate-6 pointer-events-none"
+        />
+        <motion.div
+          aria-hidden="true"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 1.1, duration: 0.6 }}
+          className="hidden lg:block absolute top-24 right-[22%] w-10 h-10 rounded-full glass-strong pointer-events-none"
+        />
 
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
           <motion.div
@@ -227,10 +295,9 @@ export default function Home() {
             transition={{ duration: 0.6 }}
             className="text-center max-w-4xl mx-auto"
           >
-            <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-full mb-8 backdrop-blur-sm border ${
-              phase === "open"   ? "border-secondary/30 bg-secondary/10" :
-              phase === "closed" ? "border-primary/30 bg-primary/10" :
-                                   "border-accent/30 bg-accent/10"
+            <div className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-full mb-8 glass-sheen ${
+              phase === "open"   ? "glass-green" :
+              phase === "closed" ? "glass-gold" : "glass-strong"
             }`}>
               <span className="relative flex h-3 w-3">
                 <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
@@ -247,14 +314,42 @@ export default function Home() {
               </span>
             </div>
 
-            <motion.img
-              src={logoImg}
-              alt="Hope Awards Kenya"
-              className="w-40 h-40 md:w-52 md:h-52 mx-auto mb-6 drop-shadow-2xl object-contain"
-              initial={{ scale: 0.8, opacity: 0 }}
+            {/* Logo — untouched original asset inside a glass stage */}
+            <motion.div
+              initial={{ scale: 0.85, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
-              transition={{ duration: 0.5, delay: 0.1 }}
-            />
+              transition={{ duration: 0.6, delay: 0.08 }}
+              className="relative inline-block mb-8"
+            >
+              <div className="absolute -inset-8 rounded-full pointer-events-none" style={{ background: "radial-gradient(circle, rgba(217,161,12,0.25), transparent 70%)" }} />
+              <div className="relative w-44 h-44 md:w-56 md:h-56 rounded-[2.5rem] glass-strong glass-sheen flex items-center justify-center p-5 shadow-2xl shadow-primary/10">
+                <motion.img
+                  src={logoImg}
+                  alt="Hope Awards Kenya"
+                  className="w-full h-full object-contain drop-shadow-2xl"
+                  initial={{ scale: 0.92 }}
+                  animate={{ scale: 1 }}
+                  transition={{ duration: 0.5, delay: 0.15 }}
+                />
+              </div>
+              {/* orbiting sparkle accents around the logo stage */}
+              <motion.div
+                aria-hidden="true"
+                className="absolute -top-3 -right-3 w-8 h-8 rounded-full glass-gold hidden md:flex items-center justify-center"
+                animate={{ y: [0, -6, 0], rotate: [0, 12, 0] }}
+                transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
+              >
+                <Sparkles className="w-4 h-4 text-primary" />
+              </motion.div>
+              <motion.div
+                aria-hidden="true"
+                className="absolute -bottom-2 -left-4 w-7 h-7 rounded-full glass-green hidden md:flex items-center justify-center"
+                animate={{ y: [0, 6, 0] }}
+                transition={{ duration: 5, repeat: Infinity, ease: "easeInOut", delay: 0.8 }}
+              >
+                <PlayCircle className="w-4 h-4 text-secondary" />
+              </motion.div>
+            </motion.div>
 
             <h1 className="font-display text-5xl md:text-7xl lg:text-8xl text-white leading-none mb-4">
               HOPE AWARDS <br />
@@ -265,7 +360,7 @@ export default function Home() {
 
             <div className="flex items-center justify-center gap-3 mb-6" data-testid="badge-edition">
               <span className="h-px w-10 bg-gradient-to-r from-transparent to-primary/60" />
-              <span className="px-4 py-1.5 rounded-full border border-primary/40 bg-primary/10 backdrop-blur-sm">
+              <span className="px-4 py-1.5 rounded-full glass-gold">
                 <span className="font-display text-sm md:text-base tracking-[0.25em] text-primary">
                   3<span className="text-primary/80">RD</span> EDITION · 2026
                 </span>
@@ -273,14 +368,14 @@ export default function Home() {
               <span className="h-px w-10 bg-gradient-to-l from-transparent to-primary/60" />
             </div>
 
-            <p className="text-xl md:text-2xl text-muted-foreground font-light mb-10 max-w-2xl mx-auto leading-relaxed">
+            <p className="text-xl md:text-2xl text-muted-foreground font-light mb-8 max-w-2xl mx-auto leading-relaxed">
               {heroDesc}
             </p>
 
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-10">
               {phase === "closed" ? (
                 <Link href="/hall-of-fame" data-testid="button-hall-of-fame">
-                  <button className="w-full sm:w-auto px-10 py-4 bg-gradient-to-r from-yellow-500 to-amber-400 text-black font-display text-xl rounded-xl transition-all hover:brightness-110 active:scale-95 shadow-lg shadow-yellow-500/30 flex items-center justify-center gap-3">
+                  <button className="w-full sm:w-auto px-10 py-4 btn-shine bg-gradient-to-r from-yellow-500 to-amber-400 text-black font-display text-xl rounded-2xl transition-all hover:brightness-110 active:scale-95 shadow-lg shadow-yellow-500/30 flex items-center justify-center gap-3">
                     <Trophy className="w-6 h-6" />
                     VIEW HALL OF FAME
                   </button>
@@ -289,25 +384,52 @@ export default function Home() {
                 <button
                   data-testid="button-scroll-categories"
                   onClick={() => document.getElementById('categories')?.scrollIntoView({ behavior: 'smooth' })}
-                  className="w-full sm:w-auto px-8 py-4 bg-primary text-black font-display text-xl rounded-xl transition-all neon-box-gold flex items-center justify-center gap-3"
+                  className="w-full sm:w-auto px-8 py-4 btn-shine bg-gradient-to-r from-primary to-amber-400 text-black font-display text-xl rounded-2xl transition-all active:scale-95 shadow-lg shadow-primary/30 flex items-center justify-center gap-3"
                 >
                   PICK A CATEGORY
                   <ArrowRight className="w-5 h-5" />
                 </button>
               )}
-              {phase === "closed" && (
-                <button
-                  data-testid="button-scroll-categories-results"
-                  onClick={() => document.getElementById('categories')?.scrollIntoView({ behavior: 'smooth' })}
-                  className="w-full sm:w-auto px-8 py-4 bg-white/5 border border-white/15 text-white font-display text-lg rounded-xl transition-all hover:bg-white/10 flex items-center justify-center gap-3"
-                >
-                  SEE ALL VOTES
-                  <ArrowRight className="w-5 h-5" />
-                </button>
+              {phase === "pre" && (
+                <Link href="/nominate">
+                  <button
+                    data-testid="button-nominate-hero"
+                    className="w-full sm:w-auto px-8 py-4 glass-strong text-white font-display text-lg rounded-2xl transition-all hover:bg-white/10 flex items-center justify-center gap-3 cursor-pointer"
+                  >
+                    <Send className="w-5 h-5 text-accent" />
+                    NOMINATE
+                  </button>
+                </Link>
               )}
             </div>
 
             <Countdown />
+          </motion.div>
+        </div>
+      </section>
+
+      {/* ═══════════ GLASS STATS STRIP ═══════════ */}
+      <section className="pb-14 relative">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, margin: "-40px" }}
+            transition={{ duration: 0.5 }}
+            className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4"
+          >
+            {[
+              { value: "60+",            label: "Categories",        icon: Trophy },
+              { value: totalContenders > 0 ? `${totalContenders}` : "—", label: "Nominees", icon: Star },
+              { value: "10 KES",         label: "Per Vote",          icon: Vote },
+              { value: "6 Dec",          label: "Voting Ends",       icon: CalendarDays },
+            ].map((stat) => (
+              <div key={stat.label} className="rounded-2xl glass glass-sheen p-5 text-center">
+                <stat.icon className="w-5 h-5 text-primary mx-auto mb-2" />
+                <p className="font-display text-2xl md:text-3xl text-white mb-0.5">{stat.value}</p>
+                <p className="text-[10px] md:text-xs text-muted-foreground font-bold tracking-[0.2em] uppercase">{stat.label}</p>
+              </div>
+            ))}
           </motion.div>
         </div>
       </section>
@@ -317,23 +439,22 @@ export default function Home() {
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.15 }}
-        className="py-6 border-b border-white/5"
+        className="pb-14"
       >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="relative rounded-3xl overflow-hidden border-2 border-primary/60 bg-gradient-to-br from-primary/20 via-black to-secondary/15 p-6 md:p-8 shadow-2xl shadow-primary/20">
-            {/* glow rings */}
-            <div className="absolute -top-16 -left-16 w-56 h-56 rounded-full bg-primary/20 blur-3xl pointer-events-none" />
-            <div className="absolute -bottom-16 -right-16 w-56 h-56 rounded-full bg-secondary/20 blur-3xl pointer-events-none" />
+          <div className="relative rounded-3xl glass-strong glass-sheen overflow-hidden p-6 md:p-8">
+            <div className="absolute -top-16 -left-16 w-56 h-56 aurora-blob bg-primary/25 aurora-slow" />
+            <div className="absolute -bottom-16 -right-16 w-56 h-56 aurora-blob bg-secondary/20" />
 
             <div className="relative z-10 flex flex-col md:flex-row items-center gap-6 text-center md:text-left">
               {/* Icon */}
-              <div className="shrink-0 flex items-center justify-center w-20 h-20 rounded-2xl bg-primary/20 border-2 border-primary/50 shadow-lg shadow-primary/30">
+              <div className="shrink-0 flex items-center justify-center w-20 h-20 rounded-2xl glass-gold">
                 <PartyPopper className="w-10 h-10 text-primary" />
               </div>
 
               {/* Text */}
               <div className="flex-1">
-                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-secondary/20 border border-secondary/40 mb-3">
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full glass-green mb-3">
                   <span className="relative flex h-2 w-2">
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-secondary opacity-75" />
                     <span className="relative inline-flex rounded-full h-2 w-2 bg-secondary" />
@@ -360,7 +481,7 @@ export default function Home() {
               </div>
 
               {/* Badge */}
-              <div className="shrink-0 flex flex-col items-center gap-1 px-6 py-4 rounded-2xl bg-black/40 border border-primary/30">
+              <div className="shrink-0 flex flex-col items-center gap-1 px-6 py-4 rounded-2xl glass-gold">
                 <span className="font-display text-xs text-primary uppercase tracking-widest">Voting starts</span>
                 <span className="font-display text-4xl text-white leading-none">25</span>
                 <span className="font-display text-xs text-white/60 uppercase tracking-widest">October 2026</span>
@@ -372,69 +493,80 @@ export default function Home() {
 
       {phase === "pre" && <NominationShareBanner />}
 
-      <section id="categories" className="py-24 relative">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center gap-4 mb-16">
-            <div className="w-12 h-12 bg-white/5 rounded-xl flex items-center justify-center border border-white/10">
-              <Trophy className="w-6 h-6 text-primary" />
-            </div>
-            <div>
-              <h2 className="font-display text-3xl md:text-4xl text-white">AWARD CATEGORIES</h2>
-              <p className="text-muted-foreground text-sm mt-1">
-                {!capacityData
-                  ? "Loading categories…"
-                  : activeCategories.length > 0
-                  ? `${activeCategories.length} categories — pick one to vote`
-                  : "Categories will appear here once nominees are approved"}
-              </p>
-            </div>
-          </div>
+      {/* ═══════════ HOW IT WORKS ═══════════ */}
+      <HowItWorks />
 
-          {(() => {
-            const groups = Array.from(new Set(activeCategories.map((c: any) => c.group)));
-            return groups.map((group) => {
-              const GroupIcon = groupIconMap[group as string] || Trophy;
-              const gradient = groupColors[group as string] || "from-gray-400 to-gray-600";
-              const cats = activeCategories.filter((c: any) => c.group === group);
-              if (cats.length === 0) return null;
-              return (
-                <div key={group as string} className="mb-14">
-                  <div className="flex items-center gap-3 mb-6">
-                    <div className={`w-9 h-9 rounded-lg bg-gradient-to-br ${gradient} flex items-center justify-center shrink-0`}>
-                      <GroupIcon className="w-4 h-4 text-white" />
+      <section id="categories" className="pb-24 relative">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+
+          <div className="rounded-3xl glass-strong glass-sheen p-8 md:p-10 mb-8 relative overflow-hidden">
+            <div className="absolute -top-20 -right-24 w-72 h-72 aurora-blob bg-primary/20" />
+            <div className="relative z-10 flex flex-col md:flex-row md:items-center gap-6 mb-10">
+              <div className="w-14 h-14 glass-gold rounded-2xl flex items-center justify-center shrink-0">
+                <Trophy className="w-7 h-7 text-primary" />
+              </div>
+              <div className="flex-1">
+                <h2 className="font-display text-3xl md:text-4xl text-white">AWARD CATEGORIES</h2>
+                <p className="text-muted-foreground text-sm mt-1">
+                  {!capacityData
+                    ? "Loading categories…"
+                    : activeCategories.length > 0
+                    ? `${activeCategories.length} categories — pick one to vote`
+                    : "Categories will appear here once nominees are approved"}
+                </p>
+              </div>
+            </div>
+
+            {(() => {
+              const groups = Array.from(new Set(activeCategories.map((c: any) => c.group)));
+              return groups.map((group) => {
+                const GroupIcon = groupIconMap[group as string] || Trophy;
+                const gradient = groupColors[group as string] || "from-gray-400 to-gray-600";
+                const cats = activeCategories.filter((c: any) => c.group === group);
+                if (cats.length === 0) return null;
+                return (
+                  <div key={group as string} className="mb-10 last:mb-0 relative z-10">
+                    <div className="flex items-center gap-3 mb-6">
+                      <div className={`w-9 h-9 rounded-lg bg-gradient-to-br ${gradient} flex items-center justify-center shrink-0 shadow-lg`}>
+                        <GroupIcon className="w-4 h-4 text-white" />
+                      </div>
+                      <h3 className="font-display text-xl text-white uppercase tracking-widest">{group as string}</h3>
+                      <div className="flex-1 h-px bg-white/10" />
+                      <span className="text-xs text-muted-foreground font-bold">{cats.length} {cats.length === 1 ? "category" : "categories"}</span>
                     </div>
-                    <h3 className="font-display text-xl text-white uppercase tracking-widest">{group as string}</h3>
-                    <div className="flex-1 h-px bg-white/5" />
-                    <span className="text-xs text-muted-foreground font-bold">{cats.length} {cats.length === 1 ? "category" : "categories"}</span>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {cats.map((cat) => {
-                      const Icon = categoryIcons[cat.id] || Trophy;
-                      const count = categoryCounts[cat.id] ?? 0;
-                      return (
-                        <Link key={cat.id} href={`/category/${cat.id}`} data-testid={`link-category-${cat.id}`}>
-                          <div className="group relative bg-card rounded-2xl border border-white/5 p-5 cursor-pointer transition-colors duration-200 hover:border-white/20">
-                            <div className="flex items-start gap-4">
-                              <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${gradient} flex items-center justify-center shrink-0 shadow-lg`}>
-                                <Icon className="w-6 h-6 text-white" />
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {cats.map((cat) => {
+                        const Icon = categoryIcons[cat.id] || Trophy;
+                        const count = categoryCounts[cat.id] ?? 0;
+                        return (
+                          <Link key={cat.id} href={`/category/${cat.id}`} data-testid={`link-category-${cat.id}`}>
+                            <motion.div
+                              whileHover={{ y: -3 }}
+                              transition={{ duration: 0.2 }}
+                              className="group relative glass glass-sheen rounded-2xl p-5 cursor-pointer transition-colors duration-200 hover:bg-white/[0.08]"
+                            >
+                              <div className="flex items-start gap-4">
+                                <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${gradient} flex items-center justify-center shrink-0 shadow-lg`}>
+                                  <Icon className="w-6 h-6 text-white" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <h3 className="font-display text-base text-white leading-tight group-hover:text-primary transition-colors">
+                                    {cat.name}
+                                  </h3>
+                                  <p className="text-xs text-muted-foreground mt-1">{count} {count === 1 ? "contender" : "contenders"}</p>
+                                </div>
+                                <ArrowRight className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors mt-1 shrink-0" />
                               </div>
-                              <div className="flex-1 min-w-0">
-                                <h3 className="font-display text-base text-white leading-tight group-hover:text-primary transition-colors">
-                                  {cat.name}
-                                </h3>
-                                <p className="text-xs text-muted-foreground mt-1">{count} {count === 1 ? "contender" : "contenders"}</p>
-                              </div>
-                              <ArrowRight className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors mt-1 shrink-0" />
-                            </div>
-                          </div>
-                        </Link>
-                      );
-                    })}
+                            </motion.div>
+                          </Link>
+                        );
+                      })}
+                    </div>
                   </div>
-                </div>
-              );
-            });
-          })()}
+                );
+              });
+            })()}
+          </div>
         </div>
       </section>
     </div>
