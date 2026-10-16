@@ -3,10 +3,11 @@ import { useLocation, useSearch } from "wouter";
 import { useCreateArtist } from "@/hooks/use-artists";
 import { useToast } from "@/hooks/use-toast";
 import { motion } from "framer-motion";
-import { ShieldAlert, Plus, Mic2, Image as ImageIcon, Lock, LogOut, Check, X, Inbox, Search, Trash2, Upload, Users, AlertTriangle, Download, BarChart2, Shuffle, Pencil, Loader2 } from "lucide-react";
+import { ShieldAlert, ShieldCheck, KeyRound, Activity, Plus, Mic2, Image as ImageIcon, Lock, LogOut, Check, X, Inbox, Search, Trash2, Upload, Users, AlertTriangle, Download, BarChart2, Shuffle, Pencil, Loader2 } from "lucide-react";
 import { CATEGORIES } from "@shared/schema";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+import { setCsrfToken, csrfHeaders, getCsrfToken } from "@/lib/csrf";
 
 async function compressImage(file: File, maxPx = 1200, quality = 0.82): Promise<File> {
   return new Promise((resolve, reject) => {
@@ -67,8 +68,22 @@ async function compressImage(file: File, maxPx = 1200, quality = 0.82): Promise<
 
 function AdminLogin({ onLogin }: { onLogin: () => void }) {
   const [password, setPassword] = useState("");
+  const [code, setCode] = useState("");
+  const [needsCode, setNeedsCode] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    // Picks up the CSRF token for this session and learns whether a second
+    // factor is configured on the server.
+    fetch("/api/admin/check", { credentials: "include" })
+      .then((r) => r.json())
+      .then((d) => {
+        setCsrfToken(d?.csrfToken);
+        if (d?.twoFactorRequired) setNeedsCode(true);
+      })
+      .catch(() => {});
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -76,13 +91,23 @@ function AdminLogin({ onLogin }: { onLogin: () => void }) {
     setError("");
 
     try {
-      const res = await apiRequest("POST", "/api/admin/login", { password });
-      const data = await res.json();
-      if (data.success) {
+      const res = await fetch("/api/admin/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...csrfHeaders() },
+        credentials: "include",
+        body: JSON.stringify({ password, code: needsCode ? code.trim() : undefined }),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (res.ok && data.success) {
+        setCsrfToken(data.csrfToken);
         onLogin();
+        return;
       }
+      if (data.twoFactorRequired) setNeedsCode(true);
+      setError(data.message || "Wrong password. Try again.");
     } catch {
-      setError("Wrong password. Try again.");
+      setError("Could not reach the server. Check your connection and try again.");
     } finally {
       setLoading(false);
     }
@@ -119,17 +144,39 @@ function AdminLogin({ onLogin }: { onLogin: () => void }) {
             />
           </div>
 
+          {needsCode && (
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-muted-foreground uppercase tracking-widest flex items-center gap-2">
+                <KeyRound className="w-3.5 h-3.5 text-accent" />
+                Authenticator code
+              </label>
+              <input
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                maxLength={7}
+                value={code}
+                onChange={(e) => setCode(e.target.value.replace(/[^0-9]/g, "").slice(0, 6))}
+                data-testid="input-admin-2fa-code"
+                placeholder="123456"
+                className="w-full bg-black/50 border border-white/10 rounded-xl py-4 px-5 text-white placeholder:text-white/20 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-all font-display text-2xl text-center tracking-[0.35em]"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                The 6-digit code from Google Authenticator, Authy or any TOTP app.
+              </p>
+            </div>
+          )}
+
           {error && (
             <p className="text-red-400 text-center text-sm font-bold" data-testid="text-login-error">{error}</p>
           )}
 
           <button
             type="submit"
-            disabled={loading || !password}
+            disabled={loading || !password || (needsCode && code.length !== 6)}
             data-testid="button-admin-login"
             className={`
               w-full py-4 rounded-xl font-display text-xl tracking-widest transition-all duration-300
-              ${loading || !password
+              ${loading || !password || (needsCode && code.length !== 6)
                 ? 'bg-white/5 text-white/30 cursor-not-allowed'
                 : 'bg-primary text-black hover:bg-primary/90 active:scale-95'}
             `}
@@ -151,7 +198,7 @@ export default function Admin() {
 
   const [isAuthed, setIsAuthed] = useState(false);
   const [checking, setChecking] = useState(true);
-  const [activeTab, setActiveTab] = useState<"add" | "requests" | "waitlist" | "approved" | "delete" | "votes">("add");
+  const [activeTab, setActiveTab] = useState<"add" | "requests" | "waitlist" | "approved" | "delete" | "votes" | "security">("add");
   const [approvedSearch, setApprovedSearch] = useState("");
   const [approvedCategory, setApprovedCategory] = useState("");
   const [uploadMode, setUploadMode] = useState<"url" | "file">("url");
@@ -183,11 +230,42 @@ export default function Admin() {
     fetch("/api/admin/check", { credentials: "include" })
       .then((r) => r.json())
       .then((d) => {
+        // Every mutating admin request carries this token (see @/lib/csrf).
+        setCsrfToken(d.csrfToken);
         setIsAuthed(d.isAdmin);
         setChecking(false);
       })
       .catch(() => setChecking(false));
   }, []);
+
+  // ── Security tab data: what the fraud controls have been seeing ──
+  // Loaded as soon as we're signed in (not just on the Security tab), because
+  // the tab's badge is how an admin notices there is something to look at.
+  const { data: alerts = [], refetch: refetchAlerts } = useQuery<any[]>({
+    queryKey: ["/api/admin/alerts"],
+    enabled: isAuthed,
+    refetchInterval: 30_000,
+  });
+
+  const { data: auditLog = [] } = useQuery<any[]>({
+    queryKey: ["/api/admin/audit"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/audit?limit=100", { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: isAuthed && activeTab === "security",
+  });
+
+  const { data: twoFactor } = useQuery<{ enabled: boolean; secret?: string; uri?: string }>({
+    queryKey: ["/api/admin/2fa"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/2fa", { credentials: "include" });
+      if (!res.ok) return { enabled: false } as { enabled: boolean };
+      return res.json();
+    },
+    enabled: isAuthed && activeTab === "security",
+  });
 
   const { mutate: createArtist, isPending } = useCreateArtist();
   const { toast } = useToast();
@@ -413,7 +491,13 @@ export default function Admin() {
       const compressed = await compressImage(file);
       const fd = new FormData();
       fd.append("image", compressed);
-      const res = await fetch("/api/upload", { method: "POST", body: fd, credentials: "include", signal: controller.signal });
+      const res = await fetch("/api/upload", {
+        method: "POST",
+        body: fd,
+        credentials: "include",
+        headers: csrfHeaders(),
+        signal: controller.signal,
+      });
       const data = await res.json();
       if (data.imageUrl) {
         setEditingArtistImageUrl(data.imageUrl);
@@ -457,6 +541,7 @@ export default function Admin() {
         method: "POST",
         body: fd,
         credentials: "include",
+        headers: csrfHeaders(),
         signal: controller.signal,
       });
       const data = await res.json();
@@ -659,6 +744,24 @@ export default function Admin() {
           >
             <BarChart2 className="w-4 h-4 inline mr-2" />
             VOTES
+          </button>
+          <button
+            onClick={() => setActiveTab("security")}
+            data-testid="tab-security"
+            className={`px-6 py-3 rounded-xl font-display text-sm tracking-wider transition-all relative ${
+              activeTab === "security" ? "bg-white text-black" : "bg-white/5 text-muted-foreground hover:bg-white/10"
+            }`}
+          >
+            <ShieldCheck className="w-4 h-4 inline mr-2" />
+            SECURITY
+            {alerts.length > 0 && (
+              <span
+                data-testid="badge-alerts-count"
+                className="absolute -top-2 -right-2 min-w-[1.5rem] h-6 px-1.5 bg-red-500 text-white rounded-full text-xs flex items-center justify-center font-bold border-2 border-background"
+              >
+                {alerts.length}
+              </span>
+            )}
           </button>
         </div>
 
@@ -1538,6 +1641,158 @@ export default function Admin() {
                 </div>
               </div>
             )}
+          </motion.div>
+        )}
+
+        {activeTab === "security" && (
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
+            {/* What is protecting the panel right now */}
+            <div className="bg-card border border-white/10 rounded-2xl p-6">
+              <div className="flex items-center gap-2 mb-4">
+                <ShieldCheck className="w-5 h-5 text-secondary" />
+                <h3 className="font-display text-lg text-white">PROTECTIONS ACTIVE</h3>
+              </div>
+              <ul className="space-y-2 text-sm text-muted-foreground">
+                <li className="flex items-start gap-2">
+                  <Check className="w-4 h-4 text-secondary mt-0.5 shrink-0" />
+                  <span>
+                    <strong className="text-white/90">CSRF token:</strong>{" "}
+                    {getCsrfToken() ? "this browser session is issuing signed write tokens" : "not loaded — reload the page"}
+                  </span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <Check className="w-4 h-4 text-secondary mt-0.5 shrink-0" />
+                  <span>
+                    <strong className="text-white/90">Two-factor login:</strong>{" "}
+                    {twoFactor?.enabled ? "ON — an authenticator code is required" : "OFF — set ADMIN_TOTP_SECRET to turn it on"}
+                  </span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <Check className="w-4 h-4 text-secondary mt-0.5 shrink-0" />
+                  <span>
+                    <strong className="text-white/90">Vote limits:</strong> whole-number votes only, a per-transaction
+                    ceiling, per-number and per-connection velocity caps, duplicate-order blocking.
+                  </span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <Check className="w-4 h-4 text-secondary mt-0.5 shrink-0" />
+                  <span>
+                    <strong className="text-white/90">Audit trail:</strong> every change below is recorded with the IP
+                    it came from.
+                  </span>
+                </li>
+              </ul>
+            </div>
+
+            {/* Two-factor enrolment */}
+            {twoFactor && !twoFactor.enabled && twoFactor.secret && (
+              <div className="bg-card border border-accent/30 rounded-2xl p-6">
+                <div className="flex items-center gap-2 mb-3">
+                  <KeyRound className="w-5 h-5 text-accent" />
+                  <h3 className="font-display text-lg text-white">TURN ON TWO-FACTOR</h3>
+                </div>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Add this secret to Google Authenticator, Authy or any TOTP app, then set it on the server as{" "}
+                  <code className="text-accent">ADMIN_TOTP_SECRET</code> and restart. From then on, logging in needs the
+                  password plus a 6-digit code.
+                </p>
+                <p
+                  data-testid="text-totp-secret"
+                  className="font-mono text-sm text-white bg-black/50 border border-white/10 rounded-xl px-4 py-3 break-all"
+                >
+                  {twoFactor.secret}
+                </p>
+                <p className="text-[11px] text-muted-foreground mt-3">
+                  This secret is only shown while two-factor is off. Anyone who has it can generate your login codes —
+                  keep it out of chats and screenshots.
+                </p>
+              </div>
+            )}
+
+            {/* Alerts */}
+            <div className="bg-card border border-white/10 rounded-2xl p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <Activity className="w-5 h-5 text-red-400" />
+                  <h3 className="font-display text-lg text-white">RECENT ALERTS</h3>
+                </div>
+                <button
+                  onClick={() => refetchAlerts()}
+                  data-testid="button-refresh-alerts"
+                  className="text-xs font-bold uppercase tracking-wider text-muted-foreground hover:text-white transition-colors"
+                >
+                  Refresh
+                </button>
+              </div>
+              {alerts.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Nothing flagged yet. That is what you want to see.</p>
+              ) : (
+                <div className="space-y-2">
+                  {alerts.map((a: any) => (
+                    <div
+                      key={a.id}
+                      data-testid={`alert-${a.id}`}
+                      className={`rounded-xl border px-4 py-3 ${
+                        a.severity === "critical"
+                          ? "bg-red-950/30 border-red-500/30"
+                          : a.severity === "warning"
+                          ? "bg-amber-950/30 border-amber-500/30"
+                          : "bg-white/5 border-white/10"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <span
+                          className={`text-[10px] font-extrabold uppercase tracking-widest ${
+                            a.severity === "critical" ? "text-red-400" : a.severity === "warning" ? "text-amber-400" : "text-accent"
+                          }`}
+                        >
+                          {a.severity} · {a.kind}
+                        </span>
+                        <span className="text-[10px] text-muted-foreground shrink-0">
+                          {new Date(a.at).toLocaleString("en-KE", { timeZone: "Africa/Nairobi" })}
+                        </span>
+                      </div>
+                      <p className="text-sm text-white/90 mt-1">{a.message}</p>
+                      {a.context && (
+                        <p className="text-[10px] text-muted-foreground font-mono mt-1 truncate">
+                          {JSON.stringify(a.context)}
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Audit log */}
+            <div className="bg-card border border-white/10 rounded-2xl p-6">
+              <div className="flex items-center gap-2 mb-4">
+                <ShieldAlert className="w-5 h-5 text-primary" />
+                <h3 className="font-display text-lg text-white">AUDIT TRAIL</h3>
+              </div>
+              {auditLog.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No admin changes recorded yet.</p>
+              ) : (
+                <div className="space-y-2 max-h-[28rem] overflow-y-auto pr-1">
+                  {auditLog.map((entry: any) => (
+                    <div
+                      key={entry.id}
+                      data-testid={`audit-${entry.id}`}
+                      className="bg-black/30 border border-white/5 rounded-xl px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-2"
+                    >
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-primary shrink-0 w-40">
+                        {entry.action}
+                      </span>
+                      <span className="text-sm text-white/90 flex-1 min-w-0">{entry.summary}</span>
+                      <span className="text-[10px] text-muted-foreground shrink-0">
+                        {new Date(entry.createdAt).toLocaleString("en-KE", { timeZone: "Africa/Nairobi" })}
+                        {entry.ip ? ` · ${entry.ip}` : ""}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </motion.div>
         )}
       </div>

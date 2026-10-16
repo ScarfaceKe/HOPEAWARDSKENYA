@@ -1,9 +1,10 @@
 import { Link } from "wouter";
 import { motion } from "framer-motion";
-import { Send, LayoutGrid, Calendar, Trophy, Mail, MapPin, Heart, Vote, Info } from "lucide-react";
+import { Send, LayoutGrid, Calendar, Trophy, Mail, MapPin, Heart, Vote, Info, FileText, ShieldCheck } from "lucide-react";
 import { SiWhatsapp, SiInstagram, SiTiktok, SiFacebook, SiYoutube } from "react-icons/si";
 import logoImg from "/images/logo.png";
 import { useVotingStatus } from "@/hooks/use-voting-status";
+import { SUPPORT_PHONE_DISPLAY, SUPPORT_WHATSAPP } from "@shared/site";
 
 export function Footer() {
   const year = new Date().getFullYear();
@@ -194,13 +195,42 @@ export function Footer() {
           </div>
         )}
 
-        <div className="mt-12 pt-6 border-t border-white/10 flex flex-col md:flex-row items-center justify-between gap-4">
-          <p className="text-xs text-muted-foreground text-center md:text-left" data-testid="text-copyright">
-            <span className="text-white/80">©</span> {year} <span className="font-display tracking-wider text-white">HOPE AWARDS KENYA</span>. All rights reserved.
-          </p>
-          <p className="text-xs text-muted-foreground flex items-center gap-1.5">
-            Built with <Heart className="w-3 h-3 text-red-400 fill-red-400" /> for Kenyan music
-          </p>
+        <div className="mt-12 pt-6 border-t border-white/10">
+          <ul className="flex flex-wrap items-center justify-center gap-x-6 gap-y-3 mb-6">
+            <li>
+              <Link href="/about" className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground hover:text-primary transition-colors cursor-pointer" data-testid="link-footer-about">
+                <Info className="w-3.5 h-3.5 text-primary/70" />
+                About
+              </Link>
+            </li>
+            <li>
+              <Link href="/terms" className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground hover:text-primary transition-colors cursor-pointer" data-testid="link-footer-terms">
+                <FileText className="w-3.5 h-3.5 text-primary/70" />
+                Terms &amp; Conditions
+              </Link>
+            </li>
+            <li>
+              <Link href="/privacy" className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground hover:text-primary transition-colors cursor-pointer" data-testid="link-footer-privacy">
+                <ShieldCheck className="w-3.5 h-3.5 text-primary/70" />
+                Privacy Policy
+              </Link>
+            </li>
+            <li>
+              <a href={SUPPORT_WHATSAPP} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground hover:text-secondary transition-colors" data-testid="link-footer-contact">
+                <SiWhatsapp className="w-3.5 h-3.5 text-secondary/70" />
+                Contact · {SUPPORT_PHONE_DISPLAY}
+              </a>
+            </li>
+          </ul>
+
+          <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+            <p className="text-xs text-muted-foreground text-center md:text-left" data-testid="text-copyright">
+              <span className="text-white/80">©</span> {year} <span className="font-display tracking-wider text-white">HOPE AWARDS KENYA</span>. All rights reserved.
+            </p>
+            <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+              Built with <Heart className="w-3 h-3 text-red-400 fill-red-400" /> for Kenyan music
+            </p>
+          </div>
         </div>
       </div>
     </footer>

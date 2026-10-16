@@ -60,6 +60,18 @@ export async function runMigrations() {
       );
     `);
 
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS admin_audit_log (
+        id SERIAL PRIMARY KEY,
+        action TEXT NOT NULL,
+        entity TEXT NOT NULL,
+        entity_id TEXT,
+        summary TEXT NOT NULL,
+        ip TEXT,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+    `);
+
     // Create indexes
     await client.query(`
       CREATE UNIQUE INDEX IF NOT EXISTS votes_paystack_reference_unique
@@ -79,6 +91,25 @@ export async function runMigrations() {
     await client.query(`
       ALTER TABLE artists ADD COLUMN IF NOT EXISTS bio TEXT;
     `);
+    // `created_at` powers the "new this week" rail on the discovery page. Nominees
+    // published before this column existed are back-dated 30 days so they are not
+    // reported as brand new; anything inserted from here on gets the real time.
+    await client.query(`
+      ALTER TABLE artists ADD COLUMN IF NOT EXISTS created_at TIMESTAMP;
+    `);
+    await client.query(`
+      UPDATE artists SET created_at = NOW() - INTERVAL '30 days' WHERE created_at IS NULL;
+    `);
+    await client.query(`
+      ALTER TABLE artists ALTER COLUMN created_at SET DEFAULT NOW();
+    `);
+    await client.query(`
+      ALTER TABLE artists ALTER COLUMN created_at SET NOT NULL;
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS artists_created_at_idx
+        ON artists (created_at DESC);
+    `);
     await client.query(`
       ALTER TABLE votes ADD COLUMN IF NOT EXISTS voter_phone TEXT;
     `);
@@ -97,6 +128,10 @@ export async function runMigrations() {
     await client.query(`
       CREATE INDEX IF NOT EXISTS uploaded_images_filename_idx
         ON uploaded_images (filename);
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS admin_audit_log_created_at_idx
+        ON admin_audit_log (created_at DESC);
     `);
     console.log("[migrate] Tables and DB indexes applied.");
   } catch (err) {

@@ -5,6 +5,8 @@ import {
   requests,
   uploadedImages,
   pendingPayments,
+  adminAuditLog,
+  type AdminAuditEntry,
   type ArtistResponse,
   type InsertArtist,
   type InsertVote,
@@ -13,11 +15,14 @@ import {
   type InsertRequest,
   type UploadedImage,
   type PendingPayment,
+  CATEGORY_CAP,
 } from "@shared/schema";
-import { eq, sql, lt, inArray } from "drizzle-orm";
+import { eq, sql, lt, inArray, desc } from "drizzle-orm";
 import { VOTING_START, VOTING_END } from "@shared/dates";
 
-export const CATEGORY_CAP = 9;
+// Re-exported so existing server imports (`import { CATEGORY_CAP } from "./storage"`)
+// keep working; the value itself is defined once in `shared/schema.ts`.
+export { CATEGORY_CAP };
 
 export { VOTING_START, VOTING_END };
 
@@ -55,6 +60,17 @@ export interface IStorage {
   deletePendingPayment(reference: string): Promise<void>;
   getOldPendingPayments(olderThanMs: number): Promise<PendingPayment[]>;
   getAllPendingPayments(): Promise<PendingPayment[]>;
+  purgeAbandonedPendingPayments(olderThanMs: number): Promise<number>;
+  logAdminAction(entry: AdminActionInput): Promise<void>;
+  getAdminAuditLog(limit?: number): Promise<AdminAuditEntry[]>;
+}
+
+export interface AdminActionInput {
+  action: string;
+  entity: string;
+  entityId?: string | number | null;
+  summary: string;
+  ip?: string | null;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -319,6 +335,35 @@ export class DatabaseStorage implements IStorage {
 
   async getAllPendingPayments(): Promise<PendingPayment[]> {
     return await db.select().from(pendingPayments).orderBy(pendingPayments.createdAt);
+  }
+
+  /**
+   * Deletes vote orders that were started but never paid for. They hold the
+   * fan's phone number, so keeping them forever would break the retention
+   * promise in the Privacy Policy; anything this old cannot still be confirmed.
+   */
+  async purgeAbandonedPendingPayments(olderThanMs: number): Promise<number> {
+    const cutoff = new Date(Date.now() - olderThanMs);
+    const deleted = await db
+      .delete(pendingPayments)
+      .where(lt(pendingPayments.createdAt, cutoff))
+      .returning({ id: pendingPayments.id });
+    return deleted.length;
+  }
+
+  async logAdminAction(entry: AdminActionInput): Promise<void> {
+    await db.insert(adminAuditLog).values({
+      action: entry.action,
+      entity: entry.entity,
+      entityId: entry.entityId == null ? null : String(entry.entityId),
+      summary: entry.summary,
+      ip: entry.ip ?? null,
+    });
+  }
+
+  async getAdminAuditLog(limit = 100): Promise<AdminAuditEntry[]> {
+    const safeLimit = Number.isFinite(limit) ? Math.min(Math.max(Math.trunc(limit), 1), 500) : 100;
+    return await db.select().from(adminAuditLog).orderBy(desc(adminAuditLog.createdAt)).limit(safeLimit);
   }
 }
 

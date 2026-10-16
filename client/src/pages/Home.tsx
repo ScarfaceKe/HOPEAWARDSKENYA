@@ -1,6 +1,6 @@
 import { Link, useLocation } from "wouter";
 import { motion } from "framer-motion";
-import { Trophy, ArrowRight, ArrowUpRight, Crown, Disc3, Mic2, Star, Users, Music2, Heart, Radio, Sparkles, Copy, CheckCheck, Tv, Video, Camera, Film, Scissors, Wand2, Palette, Flame, Globe, MapPin, Zap, BookOpen, PartyPopper, CalendarDays, Laugh, Headphones, Guitar, Piano, Vote, Send, Smartphone, ShieldCheck, Ticket } from "lucide-react";
+import { Trophy, ArrowRight, ArrowUpRight, Crown, Disc3, Mic2, Star, Users, Music2, Heart, Radio, Sparkles, Copy, CheckCheck, Tv, Video, Camera, Film, Scissors, Wand2, Palette, Flame, Globe, MapPin, Zap, BookOpen, PartyPopper, CalendarDays, Laugh, Headphones, Guitar, Piano, Vote, Send, Smartphone, ShieldCheck, Ticket, Search } from "lucide-react";
 import { CATEGORIES } from "@shared/schema";
 import { Countdown } from "@/components/Countdown";
 import { useVotingStatus } from "@/hooks/use-voting-status";
@@ -180,6 +180,8 @@ const HOW_STEPS = [
 
 export default function Home() {
   const { phase } = useVotingStatus();
+  const [, navigate] = useLocation();
+  const [nomineeQuery, setNomineeQuery] = useState("");
   const { data: capacityData } = useQuery<Array<{ id: string; approved: number }>>({
     queryKey: ["/api/categories/capacity"],
     staleTime: 60000,
@@ -439,13 +441,34 @@ export default function Home() {
               <Eyebrow>Award categories</Eyebrow>
               <h2 className="font-display text-4xl md:text-5xl text-foreground mt-3">Choose your category</h2>
             </div>
-            <p className="text-muted-foreground text-sm font-semibold">
-              {!capacityData
-                ? "Loading categories…"
-                : activeCategories.length > 0
-                ? `${activeCategories.length} live ${activeCategories.length === 1 ? "category" : "categories"}`
-                : "Categories appear here once nominees are approved"}
-            </p>
+            <div className="flex flex-col items-stretch sm:items-end gap-3">
+              <p className="text-muted-foreground text-sm font-semibold">
+                {!capacityData
+                  ? "Loading categories…"
+                  : activeCategories.length > 0
+                  ? `${activeCategories.length} live ${activeCategories.length === 1 ? "category" : "categories"}`
+                  : "Categories appear here once nominees are approved"}
+              </p>
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const term = nomineeQuery.trim();
+                  navigate(term ? `/discover?q=${encodeURIComponent(term)}` : "/discover");
+                }}
+                className="relative w-full sm:w-80"
+              >
+                <Search className="w-4 h-4 text-muted-foreground absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="search"
+                  value={nomineeQuery}
+                  onChange={(e) => setNomineeQuery(e.target.value)}
+                  data-testid="input-home-nominee-search"
+                  aria-label="Search nominees"
+                  placeholder="Search a nominee or award…"
+                  className="w-full glass rounded-xl py-3 pl-11 pr-4 text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-primary transition-all"
+                />
+              </form>
+            </div>
           </div>
 
           {activeCategories.length === 0 && capacityData && (

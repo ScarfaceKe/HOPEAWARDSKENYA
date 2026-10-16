@@ -4,6 +4,7 @@ import { useToast } from "@/hooks/use-toast";
 import { motion, AnimatePresence } from "framer-motion";
 import { Zap, Phone, Loader2, Trophy, Sparkles } from "lucide-react";
 import confetti from "canvas-confetti";
+import { VOTE_PRICE_KES, MAX_VOTES_PER_TRANSACTION } from "@shared/site";
 
 function normalizePhone(raw: string): string {
   const digits = raw.replace(/\D/g, "");
@@ -50,7 +51,7 @@ export function VoteDialog({ artistId, artistName, categoryName, isOpen, onClose
   const hasFiredConfetti = useRef(false);
   const { toast } = useToast();
 
-  const RATE_PER_VOTE = 10;
+  const RATE_PER_VOTE = VOTE_PRICE_KES;
 
   useEffect(() => {
     if (!isOpen) {
@@ -114,7 +115,10 @@ export function VoteDialog({ artistId, artistName, categoryName, isOpen, onClose
   const handleCustomChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     const parsed = parseInt(val, 10);
-    if (!isNaN(parsed) && parsed > 10000) { setCustomVotes("10000"); setVotes(10000); }
+    if (!isNaN(parsed) && parsed > MAX_VOTES_PER_TRANSACTION) {
+      setCustomVotes(String(MAX_VOTES_PER_TRANSACTION));
+      setVotes(MAX_VOTES_PER_TRANSACTION);
+    }
     else { setCustomVotes(val); setVotes(!isNaN(parsed) && parsed > 0 ? parsed : 0); }
   };
 

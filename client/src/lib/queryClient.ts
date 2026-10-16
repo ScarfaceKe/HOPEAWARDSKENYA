@@ -1,4 +1,22 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
+import { csrfHeaders, setCsrfToken } from "./csrf";
+
+/**
+ * Re-reads the session's CSRF token after the server rejects ours as stale
+ * (which happens after a redeploy, a server restart, or the 24-hour cookie
+ * expiry). `/api/admin/check` is a GET, so it is never itself CSRF-blocked.
+ */
+async function refreshCsrfToken(): Promise<boolean> {
+  try {
+    const res = await fetch("/api/admin/check", { credentials: "include" });
+    if (!res.ok) return false;
+    const data = await res.json();
+    setCsrfToken(data?.csrfToken);
+    return typeof data?.csrfToken === "string" && data.csrfToken.length > 0;
+  } catch {
+    return false;
+  }
+}
 
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
@@ -12,12 +30,27 @@ export async function apiRequest(
   url: string,
   data?: unknown | undefined,
 ): Promise<Response> {
-  const res = await fetch(url, {
-    method,
-    headers: data ? { "Content-Type": "application/json" } : {},
-    body: data ? JSON.stringify(data) : undefined,
-    credentials: "include",
-  });
+  const isMutation = method.toUpperCase() !== "GET";
+  const send = () =>
+    fetch(url, {
+      method,
+      headers: {
+        ...(data ? { "Content-Type": "application/json" } : {}),
+        ...(isMutation ? csrfHeaders() : {}),
+      },
+      body: data ? JSON.stringify(data) : undefined,
+      credentials: "include",
+    });
+
+  let res = await send();
+
+  // Retry once with a fresh token so a stale session can't wedge the admin
+  // panel (including signing out).
+  if (isMutation && res.status === 403) {
+    if (await refreshCsrfToken()) {
+      res = await send();
+    }
+  }
 
   await throwIfResNotOk(res);
   return res;

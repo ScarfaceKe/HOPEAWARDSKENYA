@@ -9,8 +9,14 @@ import { storage, CATEGORY_CAP, VOTING_START, VOTING_END } from "./storage";
 import { apiCache, imgCache, TTL_API, TTL_IMG } from "./cache";
 import { api } from "@shared/routes";
 import { insertRequestSchema, CATEGORIES, type ArtistResponse } from "@shared/schema";
+import { DISCOVERY_TAGS, categoriesWithTag, type DiscoveryTagId } from "@shared/categoryContent";
+import { PENDING_PAYMENT_RETENTION_DAYS } from "@shared/site";
 import { z } from "zod";
 import crypto from "crypto";
+import { recordAlert, recordAlertThrottled, getRecentAlerts } from "./alerts";
+import { parseVoteOrder, voteVelocity, maskPhone, normalizeVotePhone } from "./vote-rules";
+import { issueCsrfToken, requireCsrf } from "./csrf";
+import { verifyTotp, twoFactorEnabled, enrollmentSecret, otpauthUri } from "./totp";
 
 const loginAttempts = new Map<string, { count: number; lockedUntil: number | null }>();
 const MAX_LOGIN_ATTEMPTS = 5;
@@ -116,6 +122,7 @@ const ORPHAN_CLEANUP_INTERVAL_MS = 30 * 60 * 1000;
 declare module "express-session" {
   interface SessionData {
     isAdmin: boolean;
+    csrfToken?: string;
   }
 }
 
@@ -124,6 +131,37 @@ function requireAdmin(req: Request, res: Response, next: NextFunction) {
     return res.status(401).json({ message: "Unauthorized" });
   }
   next();
+}
+
+/** Constant-time string compare, so neither length nor content leaks. */
+function timingSafeEquals(a: string, b: string): boolean {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) {
+    crypto.timingSafeEqual(bufA, bufA);
+    return false;
+  }
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
+function requestIp(req: Request): string {
+  return req.ip || req.socket.remoteAddress || "unknown";
+}
+
+/**
+ * Writes an admin action to the audit log. Fire-and-forget: an audit write must
+ * never fail the action it is describing, but failures are logged loudly.
+ */
+function audit(
+  req: Request,
+  action: string,
+  entity: string,
+  entityId: string | number | null,
+  summary: string,
+) {
+  storage
+    .logAdminAction({ action, entity, entityId, summary, ip: requestIp(req) })
+    .catch((err) => console.error("[AUDIT] Failed to write audit entry:", err));
 }
 
 export async function registerRoutes(
@@ -147,6 +185,10 @@ export async function registerRoutes(
       };
       push(`${base}/`, "1.0", "daily");
       push(`${base}/nominate`, "0.9", "weekly");
+      push(`${base}/discover`, "0.8", "daily");
+      push(`${base}/about`, "0.7", "monthly");
+      push(`${base}/terms`, "0.5", "monthly");
+      push(`${base}/privacy`, "0.5", "monthly");
       for (const c of CATEGORIES) {
         push(`${base}/category/${c.id}`, "0.8", "daily");
       }
@@ -199,8 +241,12 @@ export async function registerRoutes(
     })
   );
 
+  // CSRF: deny-by-default for every non-safe /api request. Only the public
+  // forms and the server-to-server MegaPay callback are exempt (see ./csrf).
+  app.use(requireCsrf);
+
   app.post("/api/admin/login", (req, res) => {
-    const ip = req.ip || req.socket.remoteAddress || "unknown";
+    const ip = requestIp(req);
     const state = getLoginState(ip);
     const now = Date.now();
 
@@ -215,31 +261,70 @@ export async function registerRoutes(
       state.lockedUntil = null;
     }
 
-    const { password } = req.body;
+    const { password, code } = (req.body ?? {}) as { password?: unknown; code?: unknown };
     const adminPassword = process.env.ADMIN_PASSWORD;
 
     if (!adminPassword) {
       return res.status(500).json({ message: "Admin password not configured" });
     }
 
-    if (password === adminPassword) {
-      state.count = 0;
-      state.lockedUntil = null;
+    const totpSecret = twoFactorEnabled() ? String(process.env.ADMIN_TOTP_SECRET) : null;
+
+    const fail = (message: string, status = 401) => {
+      state.count += 1;
+      if (state.count >= MAX_LOGIN_ATTEMPTS) {
+        state.lockedUntil = now + LOCKOUT_DURATION_MS;
+        recordAlert("critical", "admin.login_lockout", "Admin login locked out after repeated failed attempts", {
+          ip,
+          attempts: state.count,
+          lockoutMinutes: LOCKOUT_DURATION_MS / 60000,
+        });
+      }
+      const remaining = MAX_LOGIN_ATTEMPTS - state.count;
+      if (remaining <= 0) {
+        res.setHeader("Retry-After", String(Math.ceil(LOCKOUT_DURATION_MS / 1000)));
+        return res.status(429).json({ message: "Too many failed attempts. Try again later." });
+      }
+      return res.status(status).json({
+        message,
+        attemptsRemaining: remaining,
+        twoFactorRequired: !!totpSecret,
+      });
+    };
+
+    const passwordOk = typeof password === "string" && timingSafeEquals(password, adminPassword);
+    if (!passwordOk) {
+      return fail("Wrong password");
+    }
+
+    if (totpSecret) {
+      if (typeof code !== "string" || code.replace(/\s/g, "") === "") {
+        // Not a credential failure: the admin simply hasn't entered a code yet.
+        return res.status(401).json({
+          message: "Enter the 6-digit code from your authenticator app.",
+          twoFactorRequired: true,
+        });
+      }
+      if (!verifyTotp(totpSecret, code)) {
+        recordAlertThrottled("warning", "admin.totp_failed", "Admin login rejected: wrong two-factor code", { ip });
+        return fail("Wrong authentication code.");
+      }
+    }
+
+    state.count = 0;
+    state.lockedUntil = null;
+    // Regenerate the session on login (session-fixation defence) and hand the
+    // caller the fresh CSRF token that goes with the new session id.
+    return req.session.regenerate((err) => {
+      if (err) {
+        console.error("[ADMIN] Session regenerate failed:", err);
+        return res.status(500).json({ message: "Could not start a secure session. Try again." });
+      }
       req.session.isAdmin = true;
-      return res.json({ success: true });
-    }
-
-    state.count += 1;
-    if (state.count >= MAX_LOGIN_ATTEMPTS) {
-      state.lockedUntil = now + LOCKOUT_DURATION_MS;
-    }
-
-    const remaining = MAX_LOGIN_ATTEMPTS - state.count;
-    if (remaining <= 0) {
-      res.setHeader("Retry-After", String(Math.ceil(LOCKOUT_DURATION_MS / 1000)));
-      return res.status(429).json({ message: "Too many failed attempts. Try again later." });
-    }
-    return res.status(401).json({ message: "Wrong password", attemptsRemaining: remaining });
+      const csrfToken = issueCsrfToken(req);
+      audit(req, "login", "admin", null, totpSecret ? "Admin signed in with password + 2FA" : "Admin signed in with password");
+      res.json({ success: true, csrfToken, twoFactorRequired: !!totpSecret });
+    });
   });
 
   app.post("/api/admin/logout", (req, res) => {
@@ -249,7 +334,11 @@ export async function registerRoutes(
   });
 
   app.get("/api/admin/check", (req, res) => {
-    res.json({ isAdmin: !!req.session.isAdmin });
+    res.json({
+      isAdmin: !!req.session.isAdmin,
+      twoFactorRequired: twoFactorEnabled(),
+      csrfToken: issueCsrfToken(req),
+    });
   });
 
   const noCache = (_req: Request, res: Response, next: NextFunction) => {
@@ -288,10 +377,33 @@ export async function registerRoutes(
     res.json(publicView);
   });
 
-  app.post("/api/admin/shuffle-nominees", requireAdmin, async (_req, res) => {
+  app.post("/api/admin/shuffle-nominees", requireAdmin, async (req, res) => {
     await storage.shuffleNominees();
     apiCache.clear();
+    audit(req, "shuffle", "artists", null, "Randomised nominee display order within every category");
     res.json({ message: "Nominees shuffled. Order randomised within each category." });
+  });
+
+  app.get("/api/admin/alerts", requireAdmin, noCache, (_req, res) => {
+    res.json(getRecentAlerts(100));
+  });
+
+  app.get("/api/admin/audit", requireAdmin, noCache, async (req, res) => {
+    const limit = Number(req.query.limit ?? 100);
+    res.json(await storage.getAdminAuditLog(limit));
+  });
+
+  /**
+   * Enrolment helper: hands an authenticated admin a fresh TOTP secret to scan.
+   * Once ADMIN_TOTP_SECRET is set on the host, the secret is never returned again.
+   */
+  app.get("/api/admin/2fa", requireAdmin, noCache, (_req, res) => {
+    if (twoFactorEnabled()) {
+      return res.json({ enabled: true });
+    }
+    // Stable per process — see enrollmentSecret().
+    const secret = enrollmentSecret();
+    res.json({ enabled: false, secret, uri: otpauthUri(secret) });
   });
 
   app.get("/api/stats/total-votes", async (_req, res) => {
@@ -311,6 +423,7 @@ export async function registerRoutes(
     if (isNaN(id)) return res.status(400).json({ message: "Invalid artist id" });
     const updated = await storage.updateArtistBio(id, bio);
     apiCache.del(`artist:${id}`);
+    audit(req, "update_bio", "artist", id, `Set bio for ${updated.name} (${bio.length} characters)`);
     res.json(updated);
   });
 
@@ -321,6 +434,14 @@ export async function registerRoutes(
       return res.status(400).json({ message: "add must be a positive whole number — you can only add votes, not deduct." });
     }
     const artist = await storage.addVotesToArtist(id, add);
+    audit(req, "add_votes", "artist", id, `Manually added ${add} vote(s) to ${artist.name}`);
+    recordAlertThrottled(
+      "warning",
+      "admin.manual_votes",
+      "Votes were added by hand in the admin panel",
+      { artistId: id, artist: artist.name, votes: add, ip: requestIp(req) },
+      60_000,
+    );
     res.json(artist);
   });
 
@@ -334,6 +455,7 @@ export async function registerRoutes(
     try {
       const updated = await storage.updateArtist(id, { name, imageUrl });
       apiCache.clear();
+      audit(req, "update", "artist", id, `Updated nominee details for ${updated.name}`);
       return res.json(updated);
     } catch (err: any) {
       return res.status(404).json({ message: err.message || "Artist not found" });
@@ -356,6 +478,74 @@ export async function registerRoutes(
       );
     }
     res.json(results);
+  });
+
+  const NEW_NOMINEE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+  /** Public nominee search: query text, award group, region/language tag, recency. */
+  app.get("/api/discover", async (req, res) => {
+    const q = String(req.query.q ?? "").trim().toLowerCase().slice(0, 60);
+    const tag = String(req.query.tag ?? "").trim();
+    const group = String(req.query.group ?? "").trim();
+    const sort = req.query.sort === "newest" ? "newest" : q ? "name" : "curated";
+    const limitRaw = Number(req.query.limit ?? 60);
+    const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(Math.trunc(limitRaw), 1), 120) : 60;
+
+    if (tag && !DISCOVERY_TAGS.some((t) => t.id === tag)) {
+      return res.status(400).json({ message: "Unknown filter" });
+    }
+    const groupNames = new Set<string>(CATEGORIES.map((c) => c.group as string));
+    if (group && !groupNames.has(group)) {
+      return res.status(400).json({ message: "Unknown award group" });
+    }
+
+    let pool = apiCache.get<ArtistResponse[]>("artists:public");
+    if (!pool) {
+      const all = await storage.getArtists();
+      pool = all.map(({ totalVotes: _v, ...rest }) => rest as ArtistResponse);
+      apiCache.set("artists:public", pool, TTL_API);
+    }
+
+    const categoryById = new Map<string, (typeof CATEGORIES)[number]>(CATEGORIES.map((c) => [c.id as string, c] as const));
+    const allowedCategories = tag ? new Set<string>(categoriesWithTag(tag as DiscoveryTagId)) : null;
+    const now = Date.now();
+
+    const matched = pool
+      .map((artist) => ({
+        ...artist,
+        categoryName: categoryById.get(artist.category)?.name ?? artist.category,
+        group: categoryById.get(artist.category)?.group ?? "",
+        isNew: artist.createdAt ? now - new Date(artist.createdAt).getTime() < NEW_NOMINEE_WINDOW_MS : false,
+      }))
+      .filter((artist) => {
+        if (allowedCategories && !allowedCategories.has(artist.category)) return false;
+        if (group && artist.group !== group) return false;
+        if (!q) return true;
+        return (
+          artist.name.toLowerCase().includes(q) ||
+          (artist.genre ?? "").toLowerCase().includes(q) ||
+          artist.categoryName.toLowerCase().includes(q)
+        );
+      });
+
+    const byNewest = (a: { createdAt: any }, b: { createdAt: any }) =>
+      new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime();
+
+    const results = [...matched];
+    if (sort === "newest") results.sort(byNewest);
+    else if (sort === "name") results.sort((a, b) => a.name.localeCompare(b.name));
+    else
+      results.sort(
+        (a, b) => a.displayOrder - b.displayOrder || a.name.localeCompare(b.name),
+      );
+
+    res.set("Cache-Control", "public, max-age=30, stale-while-revalidate=60");
+    res.json({
+      total: matched.length,
+      results: results.slice(0, limit),
+      newest: [...matched].sort(byNewest).slice(0, 8),
+      newThisWeekCount: matched.filter((a) => a.isNew).length,
+    });
   });
 
   app.get(api.artists.get.path, async (req, res) => {
@@ -394,6 +584,7 @@ export async function registerRoutes(
       }
       const artist = await storage.createArtist(input);
       apiCache.clear();
+      audit(req, "create", "artist", artist.id, `Added ${artist.name} to ${input.category}`);
       res.status(201).json(artist);
     } catch (err) {
       if (err instanceof z.ZodError) {
@@ -427,8 +618,11 @@ export async function registerRoutes(
   });
 
   app.delete("/api/artists/:id", requireAdmin, async (req, res) => {
-    await storage.deleteArtist(Number(req.params.id));
+    const id = Number(req.params.id);
+    const artist = await storage.getArtist(id);
+    await storage.deleteArtist(id);
     apiCache.clear();
+    audit(req, "delete", "artist", id, `Removed ${artist?.name ?? `artist #${id}`} from the competition`);
     res.json({ success: true });
   });
 
@@ -489,6 +683,28 @@ export async function registerRoutes(
       }
     } catch (err) {
       console.error("[upload-cleanup] Cleanup error:", err);
+    }
+
+    // Retention: vote orders that were started and never paid for hold the fan's
+    // phone number, so they are purged once they can no longer be reconciled.
+    // The window is shared with the Privacy Policy (shared/site.ts).
+    try {
+      const purged = await storage.purgeAbandonedPendingPayments(
+        PENDING_PAYMENT_RETENTION_DAYS * 24 * 60 * 60 * 1000,
+      );
+      if (purged > 0) {
+        console.log(
+          `[retention] Purged ${purged} abandoned pending payment record(s) older than ${PENDING_PAYMENT_RETENTION_DAYS} days`,
+        );
+        recordAlert(
+          "info",
+          "payment.pending_purged",
+          `Purged ${purged} abandoned pending payment record(s) past the ${PENDING_PAYMENT_RETENTION_DAYS}-day retention window`,
+          { purged, retentionDays: PENDING_PAYMENT_RETENTION_DAYS },
+        );
+      }
+    } catch (err) {
+      console.error("[retention] Pending-payment purge failed:", err);
     }
   };
 
@@ -552,43 +768,55 @@ export async function registerRoutes(
       return res.status(403).json({ message: "Voting has closed. Thank you for participating in Hope Awards Kenya 2026." });
     }
 
-    const { artistId, votesAdded, phone } = req.body;
-
-    if (!artistId || !votesAdded || votesAdded < 1) {
-      return res.status(400).json({ message: "Invalid vote data" });
+    const parsed = parseVoteOrder(req.body);
+    if (!parsed.ok) {
+      return res.status(parsed.status).json({ message: parsed.message });
     }
+    const { artistId, votesAdded, phone, amountKes } = parsed.order;
 
-    const artist = await storage.getArtist(Number(artistId));
+    const artist = await storage.getArtist(artistId);
     if (!artist) {
-      return res.status(404).json({ message: "Artist not found" });
+      return res.status(404).json({ message: "Nominee not found" });
     }
 
-    const amountKes = votesAdded * 10;
-    const reference = `hopeawards-${artistId}-${Date.now()}-${crypto.randomBytes(2).toString("hex")}`;
+    const voterIp = requestIp(req);
+    const velocity = voteVelocity.check({ phone, ip: voterIp, artistId, votesAdded, amountKes });
+    if (!velocity.allowed) {
+      return res.status(velocity.status).json({ message: velocity.message });
+    }
 
     const megapayApiKey = process.env.MEGAPAY_API_KEY;
-    if (!megapayApiKey) {
+    const megapayEmail = process.env.MEGAPAY_EMAIL || "";
+    if (!megapayApiKey || !megapayEmail) {
+      console.error("[MEGAPAY] Payment gateway is missing credentials (MEGAPAY_API_KEY / MEGAPAY_EMAIL)");
+      recordAlertThrottled(
+        "critical",
+        "payment.gateway_unconfigured",
+        "MegaPay credentials are missing — fans cannot pay for votes",
+        { ip: voterIp },
+      );
       return res.status(500).json({ message: "Payment system not configured" });
     }
 
+    const reference = `hopeawards-${artistId}-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
+
+    // Persist the order *before* charging: the callback can only record a vote
+    // for a pending payment it can find, so a failed insert must fail the request
+    // (an unrecorded order means the fan pays and gets nothing).
     try {
-      const normalizedPhone = phone?.replace(/\D/g, "") || "";
-      if (!normalizedPhone || normalizedPhone.length < 10) {
-        return res.status(400).json({ message: "Valid phone number required for M-Pesa payment" });
-      }
+      await storage.createPendingPayment(reference, artistId, votesAdded, amountKes, phone);
+    } catch (err) {
+      console.error("[PENDING] Failed to save pending payment:", err);
+      recordAlertThrottled(
+        "critical",
+        "payment.pending_insert_failed",
+        "Could not record a pending vote order before charging the fan",
+        { reference, artistId, votesAdded },
+      );
+      return res.status(500).json({ message: "Could not start the payment. Please try again." });
+    }
 
-      // Save pending record before calling MegaPay
-      storage.createPendingPayment(
-        reference, Number(artistId), Number(votesAdded), amountKes, normalizedPhone
-      ).catch(err => console.error("[PENDING] Failed to save pending payment:", err));
-
-      const megapayEmail = process.env.MEGAPAY_EMAIL || "";
-      if (!megapayEmail) {
-        console.error("[MEGAPAY] MEGAPAY_EMAIL env var not set!");
-        storage.deletePendingPayment(reference).catch(() => {});
-        return res.status(500).json({ message: "Payment system not configured (missing email)" });
-      }
-
+    try {
       const response = await fetch("https://megapay.co.ke/backend/v1/initiatestk", {
         method: "POST",
         headers: {
@@ -598,19 +826,21 @@ export async function registerRoutes(
           api_key: megapayApiKey,
           email: megapayEmail,
           amount: String(amountKes),
-          msisdn: normalizedPhone,
+          msisdn: phone,
           reference,
         }),
       });
 
       const data = await response.json();
 
-      console.log(`[MEGAPAY-RESPONSE] ref=${reference}, fullResponse=${JSON.stringify(data)}`);
+      console.log(
+        `[MEGAPAY-RESPONSE] ref=${reference}, votes=${votesAdded}, amount=${amountKes}KES, msisdn=${maskPhone(phone)}, response=${JSON.stringify(data)}`,
+      );
 
       // MegaPay returns { success: true, ResultCode: "0" } on success
       if (data.success !== true && data.ResultCode !== "0") {
-        console.log(`[MEGAPAY-ERROR] ref=${reference}, ResultCode=${data.ResultCode}, message=${data.message}`);
-        storage.deletePendingPayment(reference).catch(() => {});
+        console.warn(`[MEGAPAY-ERROR] ref=${reference}, ResultCode=${data.ResultCode}, message=${data.message}`);
+        await storage.deletePendingPayment(reference).catch(() => {});
         return res.status(400).json({ message: data.message || "Failed to initiate M-Pesa payment", megapayResponse: data });
       }
 
@@ -622,7 +852,13 @@ export async function registerRoutes(
       });
     } catch (err: any) {
       console.error("MegaPay init error:", err);
-      storage.deletePendingPayment(reference).catch(() => {});
+      await storage.deletePendingPayment(reference).catch(() => {});
+      recordAlertThrottled(
+        "critical",
+        "payment.gateway_error",
+        "MegaPay STK initiation failed — fans cannot complete vote payments",
+        { reference, error: String(err?.message ?? err) },
+      );
       return res.status(500).json({ message: "Payment initialization failed" });
     }
   });
@@ -657,10 +893,81 @@ export async function registerRoutes(
     }
   });
 
+  /**
+   * Callback bodies carry the fan's MSISDN. Mask phone-like fields before the
+   * body reaches the logs or the alert buffer (which the admin panel renders),
+   * keeping the field names so a payload can still be debugged.
+   */
+  function redactCallbackBody(body: unknown): Record<string, unknown> {
+    if (!body || typeof body !== "object") return {};
+    const out: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(body as Record<string, unknown>)) {
+      if (/msisdn|phone/i.test(key) && (typeof value === "string" || typeof value === "number")) {
+        out[key] = maskPhone(String(value));
+      } else if (value && typeof value === "object") {
+        out[key] = "(nested)";
+      } else {
+        out[key] = value;
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Source authentication for the MegaPay callback. Anyone who can reach this
+   * URL could otherwise claim a payment succeeded, so we require either the
+   * shared secret (header `x-megapay-signature` / `?secret=`) or a request from
+   * an approved IP in MEGAPAY_CALLBACK_IPS. When neither is configured we still
+   * accept — so voting keeps working — but alert loudly that it is unverified.
+   */
+  const callbackSecret = () => process.env.MEGAPAY_CALLBACK_SECRET?.trim() || "";
+  const callbackIps = () =>
+    (process.env.MEGAPAY_CALLBACK_IPS || "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+  function callbackSourceAllowed(req: Request): boolean {
+    const expectedSecret = callbackSecret();
+    const allowedIps = callbackIps();
+    if (!expectedSecret && allowedIps.length === 0) return true;
+
+    const ip = requestIp(req);
+    const provided = String(
+      req.headers["x-megapay-signature"] ?? req.headers["x-callback-token"] ?? req.query.secret ?? "",
+    );
+    if (expectedSecret && provided && timingSafeEquals(expectedSecret, provided)) return true;
+    if (allowedIps.includes(ip)) return true;
+    return false;
+  }
+
   app.post("/api/megapay/callback", async (req, res) => {
     // MegaPay callback for STK Push payment results
     // MegaPay may send reference as 'reference', 'transaction_request_id', or nested in other fields
-    console.log(`[MEGAPAY CALLBACK RECEIVED] body=${JSON.stringify(req.body)}`);
+    const callbackIp = requestIp(req);
+
+    if (!callbackSourceAllowed(req)) {
+      recordAlertThrottled(
+        "critical",
+        "payment.callback_unauthenticated",
+        "Rejected a MegaPay callback that presented neither the shared secret nor an approved IP",
+        { ip: callbackIp, body: redactCallbackBody(req.body) },
+        30_000,
+      );
+      return res.status(403).json({ status: "forbidden" });
+    }
+
+    if (!callbackSecret() && callbackIps().length === 0) {
+      recordAlertThrottled(
+        "warning",
+        "payment.callback_unverified",
+        "MegaPay callbacks are not authenticated — set MEGAPAY_CALLBACK_SECRET or MEGAPAY_CALLBACK_IPS",
+        { ip: callbackIp },
+        6 * 60 * 60_000,
+      );
+    }
+
+    console.log(`[MEGAPAY CALLBACK RECEIVED] ip=${callbackIp} body=${JSON.stringify(redactCallbackBody(req.body))}`);
     
     // MegaPay PascalCase: TransactionReference, ResponseCode, etc.
     const reference = req.body.reference 
@@ -675,7 +982,13 @@ export async function registerRoutes(
     const result_desc = req.body.result_desc || req.body.ResponseDescription || req.body.message;
 
     if (!reference) {
-      console.warn(`[MEGAPAY CALLBACK] No reference found in callback body:`, JSON.stringify(req.body));
+      console.warn(`[MEGAPAY CALLBACK] No reference found in callback body:`, JSON.stringify(redactCallbackBody(req.body)));
+      recordAlertThrottled(
+        "warning",
+        "payment.callback_unparseable",
+        "A callback arrived with no recognisable payment reference",
+        { ip: callbackIp, body: redactCallbackBody(req.body) },
+      );
       // Return 200 to MegaPay so it doesn't retry
       return res.status(200).json({ status: "ok" });
     }
@@ -689,26 +1002,56 @@ export async function registerRoutes(
           return res.status(200).json({ status: "already_recorded" });
         }
 
-        // Extract artistId from reference: hopeawards-{artistId}-{ts}-{hex}
-        const refParts = reference.split("-");
-        const artistId = Number(refParts[1]);
-
-        if (!artistId || isNaN(artistId)) {
-          console.error(`[MEGAPAY CALLBACK] Could not determine artistId for ref ${reference}`);
-          return res.status(200).json({ status: "ignored" });
-        }
-
-        if (Date.now() > VOTING_END) {
-          console.warn(`[MEGAPAY CALLBACK] Rejecting late payment ${reference} — voting window has closed.`);
-          return res.status(200).json({ status: "rejected" });
-        }
-
-        // Get pending payment to get votes and amount
+        // The pending order is authoritative for artist, votes and amount —
+        // never the reference string or the callback body.
         const pendingPayments = await storage.getAllPendingPayments();
         const pending = pendingPayments.find(p => p.reference === reference);
         if (!pending) {
-          console.error(`[MEGAPAY CALLBACK] No pending payment found for ref ${reference}`);
+          recordAlertThrottled(
+            "warning",
+            "payment.callback_unknown_reference",
+            "Callback claimed a successful payment with no matching pending order",
+            { reference, ip: callbackIp },
+          );
           return res.status(200).json({ status: "no_pending" });
+        }
+
+        const artistId = pending.artistId;
+
+        // If MegaPay echoes an amount, it must match what we charged.
+        const claimedAmount = Number(
+          req.body.amount ?? req.body.Amount ?? req.body.TransAmount ?? req.body.transaction_amount,
+        );
+        if (Number.isFinite(claimedAmount) && claimedAmount > 0 && claimedAmount !== pending.amountKes) {
+          recordAlertThrottled(
+            "critical",
+            "payment.callback_amount_mismatch",
+            "Callback amount does not match the pending order — vote not recorded",
+            { reference, claimedAmount, expected: pending.amountKes, ip: callbackIp },
+          );
+          return res.status(200).json({ status: "amount_mismatch" });
+        }
+
+        const claimedPhone = normalizeVotePhone(
+          req.body.Msisdn ?? req.body.msisdn ?? req.body.phone ?? "",
+        );
+        if (claimedPhone && pending.voterPhone && claimedPhone !== pending.voterPhone) {
+          recordAlertThrottled(
+            "warning",
+            "payment.callback_phone_mismatch",
+            "Callback paying number differs from the number that started the order",
+            { reference, ip: callbackIp, expected: maskPhone(pending.voterPhone), got: maskPhone(claimedPhone) },
+          );
+        }
+
+        if (Date.now() > VOTING_END) {
+          recordAlertThrottled(
+            "critical",
+            "payment.late_after_close",
+            "Payment completed after the enforced voting close — refund needed, no vote recorded",
+            { reference, votes: pending.votesAdded, amountKes: pending.amountKes },
+          );
+          return res.status(200).json({ status: "rejected" });
         }
 
         const voterPhone = req.body.Msisdn || req.body.msisdn || req.body.phone || pending.voterPhone;
@@ -720,8 +1063,9 @@ export async function registerRoutes(
           paystackReference: reference,
           voterPhone: voterPhone ?? null,
         });
-        storage.deletePendingPayment(reference).catch(() => {});
-        console.log(`[MEGAPAY CALLBACK] Vote recorded: ref=${reference}, artist=${artistId}, votes=${pending.votesAdded}, amount=${pending.amountKes}KES`);
+        await storage.deletePendingPayment(reference).catch(() => {});
+        apiCache.clear();
+        console.log(`[MEGAPAY CALLBACK] Vote recorded: ref=${reference}, artist=${artistId}, votes=${pending.votesAdded}, amount=${pending.amountKes}KES, phone=${maskPhone(String(voterPhone ?? ""))}`);
       } catch (err: any) {
         console.error(`[MEGAPAY CALLBACK CRITICAL] Vote creation failed for ref ${reference}:`, err);
         return res.status(500).json({ status: "error" });
@@ -917,6 +1261,7 @@ export async function registerRoutes(
         }
       }
       await storage.updateRequestCategory(id, category);
+      audit(req, "move_category", "request", id, `Moved nomination ${existing.name} from ${existing.category} to ${category}`);
       // If this nominee is already a published artist (approved), keep the public gallery in sync
       // by moving the artist row to the new category too.
       if (currentlyApproved && existing.category !== category) {
@@ -929,7 +1274,11 @@ export async function registerRoutes(
 
     let updated;
     if (status !== undefined) {
+      const before = await storage.getRequest(id);
       updated = await storage.updateRequestStatus(id, status);
+      if (updated && before && before.status !== status) {
+        audit(req, `nomination_${status}`, "request", id, `Nomination ${updated.name} went from ${before.status} to ${status}`);
+      }
     } else {
       updated = await storage.getRequest(id);
     }
@@ -972,6 +1321,20 @@ export async function registerRoutes(
       });
       await storage.deletePendingPayment(reference);
       apiCache.clear();
+      audit(
+        req,
+        "recover_payment",
+        "pending_payment",
+        reference,
+        `Force-recorded a vote for ${pending.votesAdded} vote(s) on artist #${pending.artistId} after a stuck payment`,
+      );
+      recordAlertThrottled(
+        "warning",
+        "admin.manual_recovery",
+        "A payment was force-recovered by hand — confirm the M-Pesa statement matches",
+        { reference, artistId: pending.artistId, votes: pending.votesAdded, amountKes: pending.amountKes, ip: requestIp(req) },
+        60_000,
+      );
       console.log(`[ADMIN-RECOVER] Force-recovered: ref=${reference}, artist=${pending.artistId}, votes=${pending.votesAdded}`);
       return res.json({ status: "recovered", vote });
     } catch (err: any) {
@@ -980,7 +1343,9 @@ export async function registerRoutes(
   });
 
   app.delete("/api/admin/pending-payments/:reference", requireAdmin, async (req, res) => {
-    await storage.deletePendingPayment(String(req.params.reference));
+    const reference = String(req.params.reference);
+    await storage.deletePendingPayment(reference);
+    audit(req, "dismiss_payment", "pending_payment", reference, "Dismissed a pending payment record");
     res.json({ status: "deleted" });
   });
 
@@ -1015,8 +1380,8 @@ export async function registerRoutes(
 
   setTimeout(() => {
     recoverPendingPayments();
-    setInterval(recoverPendingPayments, 5 * 60 * 1000);
-  }, 2 * 60 * 1000);
+    setInterval(recoverPendingPayments, 5 * 60 * 1000).unref();
+  }, 2 * 60 * 1000).unref();
 
   return httpServer;
 }

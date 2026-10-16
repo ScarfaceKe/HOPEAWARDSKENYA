@@ -1,5 +1,5 @@
 import { Link } from "wouter";
-import { Send, LayoutGrid, Vote } from "lucide-react";
+import { Send, LayoutGrid, Vote, Info, Search } from "lucide-react";
 import { motion } from "framer-motion";
 import logoImg from "/images/logo.png";
 import { useVotingStatus } from "@/hooks/use-voting-status";
@@ -32,6 +32,16 @@ export function Navbar() {
             <Link href="/" className="hidden md:flex items-center gap-2 text-muted-foreground hover:text-white transition-colors font-semibold uppercase tracking-wide text-sm cursor-pointer" data-testid="link-categories">
               <LayoutGrid className="w-4 h-4" />
               Categories
+            </Link>
+
+            <Link href="/discover" className="hidden md:flex items-center gap-2 text-muted-foreground hover:text-white transition-colors font-semibold uppercase tracking-wide text-sm cursor-pointer" data-testid="link-find-nominee">
+              <Search className="w-4 h-4" />
+              Find a nominee
+            </Link>
+
+            <Link href="/about" className="hidden md:flex items-center gap-2 text-muted-foreground hover:text-white transition-colors font-semibold uppercase tracking-wide text-sm cursor-pointer" data-testid="link-about">
+              <Info className="w-4 h-4" />
+              About
             </Link>
 
             {votingPre && (

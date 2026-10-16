@@ -4,6 +4,7 @@ import { ArtistCard } from "@/components/ArtistCard";
 import { motion } from "framer-motion";
 import { ArrowLeft, Trophy, Loader2, CheckCircle2 } from "lucide-react";
 import { CATEGORIES } from "@shared/schema";
+import { categorySummary } from "@shared/categoryContent";
 import { useVotingStatus } from "@/hooks/use-voting-status";
 import { useEffect, useState, useRef } from "react";
 import { useToast } from "@/hooks/use-toast";
@@ -232,6 +233,14 @@ export default function CategoryPage() {
                 </p>
               </div>
             </div>
+
+            {/* Per-category intro: unique copy for fans and for search engines. */}
+            <p
+              className="text-muted-foreground leading-relaxed max-w-3xl mt-2"
+              data-testid="text-category-intro"
+            >
+              {categorySummary(category.id)}
+            </p>
           </motion.div>
         </div>
       </section>

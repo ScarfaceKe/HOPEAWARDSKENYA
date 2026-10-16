@@ -1,5 +1,6 @@
 import { storage } from "./storage";
 import { CATEGORIES } from "../shared/schema";
+import { categoryMetaDescription } from "@shared/categoryContent";
 import { VOTING_START, VOTING_END, AWARDS_DATE } from "@shared/dates";
 
 const SITE_ORIGIN = "https://hopeawards.co.ke";
@@ -11,6 +12,25 @@ function currentPhase(): VotingPhase {
   if (now <= VOTING_END)  return "open";
   return "closed";
 }
+
+/** Static information pages: about, terms and privacy. */
+const INFO_PAGES: Record<string, { title: string; description: string; imageAlt: string }> = {
+  "/about": {
+    title: "About Hope Awards Kenya 2026 — 3rd Edition",
+    description: `Who Hope Awards Kenya is, and how the 3rd Edition works: ${CATEGORIES.length} fan-voted categories across music, media, performance, production and regional culture. Nominations are free; voting runs 25th October to 6th December 2026 at 1 Vote = 10 KES.`,
+    imageAlt: "Hope Awards Kenya 2026 — 3rd Edition",
+  },
+  "/terms": {
+    title: "Terms & Conditions | Hope Awards Kenya 2026",
+    description: "The rules for nominating, voting and paying at Hope Awards Kenya 2026: free reviewed nominations, 1 vote = 10 KES by M-Pesa, votes non-refundable once recorded, and every category decided by verified votes.",
+    imageAlt: "Hope Awards Kenya 2026 — Terms & Conditions",
+  },
+  "/privacy": {
+    title: "Privacy Policy | Hope Awards Kenya 2026",
+    description: "How Hope Awards Kenya handles your data under Kenya's Data Protection Act 2019: what we collect, what we never collect, how long we keep it, and how to access, correct or delete it.",
+    imageAlt: "Hope Awards Kenya 2026 — Privacy Policy",
+  },
+};
 
 export type OgOverride = {
   title: string;
@@ -37,23 +57,40 @@ export async function getOgOverrideForUrl(url: string): Promise<OgOverride | nul
   try {
     const path = url.split("?")[0].split("#")[0];
 
+    const infoPage = INFO_PAGES[path.replace(/\/+$/, "")];
+    if (infoPage) {
+      const canonical = path.replace(/\/+$/, "");
+      const image = `${SITE_ORIGIN}/og-image.jpg`;
+      return {
+        title: infoPage.title,
+        description: infoPage.description,
+        image,
+        imageType: imageMimeFromUrl(image),
+        imageWidth: 1200,
+        imageHeight: 630,
+        imageAlt: infoPage.imageAlt,
+        url: `${SITE_ORIGIN}${canonical}`,
+      };
+    }
+
     const cm = path.match(/^\/category\/([a-z0-9-]+)\/?$/);
     if (cm) {
       const cat = CATEGORIES.find((c) => c.id === cm[1]);
       if (!cat) return null;
       const image = `${SITE_ORIGIN}/og-image.jpg`;
       const phase = currentPhase();
+      const intro = categoryMetaDescription(cat.id);
       let title: string;
       let description: string;
       if (phase === "open") {
         title = `${cat.name} - Vote Now | Hope Awards Kenya 2026`;
-        description = `Voting is OPEN for ${cat.name} at Hope Awards Kenya 2026 (3rd Edition). 1 Vote = 10 KES via M-Pesa or card. Awards night date to be announced.`;
+        description = `${intro} Voting is OPEN — 1 Vote = 10 KES via M-Pesa.`.trim();
       } else if (phase === "closed") {
         title = `${cat.name} Nominees | Hope Awards Kenya 2026`;
-        description = `See the ${cat.name} nominees at Hope Awards Kenya 2026 (3rd Edition). Voting has closed — winners revealed live on awards night, ${AWARDS_DATE}.`;
+        description = `${intro} Voting has closed — winners revealed live on awards night, ${AWARDS_DATE}.`.trim();
       } else {
         title = `${cat.name} Nominees | Hope Awards Kenya 2026`;
-      description = `Meet the ${cat.name} nominees at Hope Awards Kenya 2026 (3rd Edition). Voting opens 25th October 2026 (12:00 AM EAT). 1 Vote = 10 KES.`;
+        description = `${intro} Voting opens 25th October 2026 (12:00 AM EAT) at 1 Vote = 10 KES.`.trim();
       }
       return {
         title,

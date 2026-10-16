@@ -83,6 +83,13 @@ export const CATEGORIES = [
   { id: "charity-group", name: "Charity Group of the Year 2026", group: "Special Recognition" },
 ] as const;
 
+/**
+ * Maximum number of approved nominees published in a single category.
+ * Lives in `shared` so the nomination API, the admin panel and the
+ * client-facing legal pages all quote the same limit.
+ */
+export const CATEGORY_CAP = 9;
+
 export type CategoryId = typeof CATEGORIES[number]["id"];
 
 export function isSongCategory(categoryId: string): boolean {
@@ -101,12 +108,15 @@ export const artists = pgTable("artists", {
   totalVotes: integer("total_votes").notNull().default(0),
   displayOrder: integer("display_order").notNull().default(0),
   bio: text("bio"),
+  /** When the nominee was published. Drives the "new this week" discovery rail. */
+  createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
 export const insertArtistSchema = createInsertSchema(artists).omit({
   id: true,
   totalVotes: true,
   displayOrder: true,
+  createdAt: true,
 }).refine(
   (a) => CATEGORIES.some((c) => c.id === a.category),
   { message: "Invalid category", path: ["category"] },
@@ -168,6 +178,22 @@ export const pendingPayments = pgTable("pending_payments", {
 });
 
 export type PendingPayment = typeof pendingPayments.$inferSelect;
+
+/**
+ * Who changed what in the admin panel, and when. Every admin mutation writes a
+ * row so a disputed vote or nominee change can be traced after the fact.
+ */
+export const adminAuditLog = pgTable("admin_audit_log", {
+  id: serial("id").primaryKey(),
+  action: text("action").notNull(),
+  entity: text("entity").notNull(),
+  entityId: text("entity_id"),
+  summary: text("summary").notNull(),
+  ip: text("ip"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export type AdminAuditEntry = typeof adminAuditLog.$inferSelect;
 
 export const uploadedImages = pgTable("uploaded_images", {
   id: serial("id").primaryKey(),
