@@ -25,32 +25,50 @@ async function throwIfResNotOk(res: Response) {
   }
 }
 
-export async function apiRequest(
-  method: string,
-  url: string,
-  data?: unknown | undefined,
-): Promise<Response> {
-  const isMutation = method.toUpperCase() !== "GET";
+/**
+ * `fetch` that carries the session CSRF token on every write and, if the
+ * server still rejects the request as stale, re-reads the token once and
+ * replays the request.
+ *
+ * Anything in the admin panel that builds its own request instead of going
+ * through `apiRequest` must use this: `server/csrf.ts` denies every non-safe
+ * `/api` request that arrives without `x-csrf-token`, so a bare `fetch` POST
+ * gets a 403 no matter what the payload says.
+ */
+export async function csrfFetch(input: string, init: RequestInit = {}): Promise<Response> {
+  const method = (init.method ?? "GET").toUpperCase();
+  const isMutation = method !== "GET";
   const send = () =>
-    fetch(url, {
-      method,
+    fetch(input, {
+      ...init,
       headers: {
-        ...(data ? { "Content-Type": "application/json" } : {}),
+        ...(init.headers as Record<string, string> | undefined),
         ...(isMutation ? csrfHeaders() : {}),
       },
-      body: data ? JSON.stringify(data) : undefined,
-      credentials: "include",
     });
 
   let res = await send();
 
   // Retry once with a fresh token so a stale session can't wedge the admin
   // panel (including signing out).
-  if (isMutation && res.status === 403) {
-    if (await refreshCsrfToken()) {
-      res = await send();
-    }
+  if (isMutation && res.status === 403 && (await refreshCsrfToken())) {
+    res = await send();
   }
+
+  return res;
+}
+
+export async function apiRequest(
+  method: string,
+  url: string,
+  data?: unknown | undefined,
+): Promise<Response> {
+  const res = await csrfFetch(url, {
+    method,
+    headers: data ? { "Content-Type": "application/json" } : {},
+    body: data ? JSON.stringify(data) : undefined,
+    credentials: "include",
+  });
 
   await throwIfResNotOk(res);
   return res;

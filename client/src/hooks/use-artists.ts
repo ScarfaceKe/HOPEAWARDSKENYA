@@ -1,5 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, buildUrl, type ArtistInput } from "@shared/routes";
+import { csrfFetch } from "@/lib/queryClient";
+import { createArtistError } from "@/lib/approvalError";
 
 export function useArtists(category?: string) {
   return useQuery({
@@ -36,18 +38,17 @@ export function useCreateArtist() {
   return useMutation({
     mutationFn: async (data: ArtistInput) => {
       const validated = api.artists.create.input.parse(data);
-      const res = await fetch(api.artists.create.path, {
+      // csrfFetch, not fetch: /api/artists is a cookie-authenticated write, so
+      // without the session token the server refuses it with a 403 before it
+      // ever looks at the nomination.
+      const res = await csrfFetch(api.artists.create.path, {
         method: api.artists.create.method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(validated),
         credentials: "include",
       });
       if (!res.ok) {
-        if (res.status === 400) {
-          const error = api.artists.create.responses[400].parse(await res.json());
-          throw new Error(error.message);
-        }
-        throw new Error("Failed to create artist");
+        throw createArtistError(res.status, await res.json().catch(() => undefined));
       }
       return api.artists.create.responses[201].parse(await res.json());
     },

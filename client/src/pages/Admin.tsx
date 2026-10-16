@@ -4,10 +4,11 @@ import { useCreateArtist } from "@/hooks/use-artists";
 import { useToast } from "@/hooks/use-toast";
 import { motion } from "framer-motion";
 import { ShieldAlert, ShieldCheck, KeyRound, Activity, Plus, Mic2, Image as ImageIcon, Lock, LogOut, Check, X, Inbox, Search, Trash2, Upload, Users, AlertTriangle, Download, BarChart2, Shuffle, Pencil, Loader2 } from "lucide-react";
-import { CATEGORIES } from "@shared/schema";
+import { CATEGORIES, CATEGORY_CAP } from "@shared/schema";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { setCsrfToken, csrfHeaders, getCsrfToken } from "@/lib/csrf";
+import { approvalFailure } from "@/lib/approvalError";
 
 async function compressImage(file: File, maxPx = 1200, quality = 0.82): Promise<File> {
   return new Promise((resolve, reject) => {
@@ -600,11 +601,8 @@ export default function Admin() {
         },
         onError: (err: any) => {
           const catName = CATEGORIES.find(c => c.id === req.category)?.name || req.category;
-          toast({
-            title: "Cannot approve — category full",
-            description: `${catName} already has 9 nominees. Remove one from that category first, then try again.`,
-            variant: "destructive",
-          });
+          const { title, description } = approvalFailure(err, catName);
+          toast({ title, description, variant: "destructive" });
         },
       }
     );
@@ -997,7 +995,7 @@ export default function Admin() {
                 <div className="space-y-1">
                   <p className="text-amber-200 font-bold text-sm">What is the waitlist?</p>
                   <p className="text-xs text-amber-200/80 leading-relaxed">
-                    These nominees tried to register in a category that was already full (9/9 nominees). Instead of losing them, we saved their details here and suggested alternative categories with open spots. You can promote them if a spot opens up, or contact them by phone.
+                    These nominees tried to register in a category that was already full ({CATEGORY_CAP}/{CATEGORY_CAP} nominees). Instead of losing them, we saved their details here and suggested alternative categories with open spots. You can promote them if a spot opens up, or contact them by phone.
                   </p>
                 </div>
               </div>
@@ -1093,7 +1091,7 @@ export default function Admin() {
                 <div className="space-y-1">
                   <p className="text-secondary font-bold text-sm">All approved nominees</p>
                   <p className="text-xs text-secondary/80 leading-relaxed">
-                    These nominees are LIVE on the public site. Use the yellow "MOVE TO CATEGORY" dropdown on any card to shift them into a different category at any time — the public site updates instantly. Categories at 9/9 are blocked as destinations.
+                    These nominees are LIVE on the public site. Use the yellow "MOVE TO CATEGORY" dropdown on any card to shift them into a different category at any time — the public site updates instantly. Categories at {CATEGORY_CAP}/{CATEGORY_CAP} are blocked as destinations.
                   </p>
                 </div>
               </div>

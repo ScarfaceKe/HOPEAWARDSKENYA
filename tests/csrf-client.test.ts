@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { apiRequest } from "../client/src/lib/queryClient";
+import { apiRequest, csrfFetch } from "../client/src/lib/queryClient";
 import { getCsrfToken, setCsrfToken } from "../client/src/lib/csrf";
 
 type Call = { url: string; init: RequestInit | undefined };
@@ -114,6 +114,60 @@ test("a network failure while refreshing does not mask the original error", asyn
   try {
     await assert.rejects(() => apiRequest("POST", "/api/admin/logout"));
     assert.equal(writeAttempts, 1);
+  } finally {
+    stub.restore();
+  }
+});
+
+test("csrfFetch carries the token, so a self-built admin write is not refused", async () => {
+  // Regression: the approve flow posts /api/artists through its own fetch. It
+  // arrived without x-csrf-token, the server answered 403, and the admin panel
+  // blamed a full category that read 0/9.
+  setCsrfToken("token-9");
+  const stub = stubFetch(() => json({ id: 1 }, 201));
+  try {
+    const res = await csrfFetch("/api/artists", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "New Artist" }),
+      credentials: "include",
+    });
+    assert.equal(res.status, 201);
+    const headers = stub.calls[0].init?.headers as Record<string, string>;
+    assert.equal(headers["x-csrf-token"], "token-9");
+    assert.equal(headers["Content-Type"], "application/json");
+  } finally {
+    stub.restore();
+  }
+});
+
+test("csrfFetch re-reads a stale token and replays the write exactly once", async () => {
+  setCsrfToken("stale-token");
+  let writeAttempts = 0;
+  const stub = stubFetch((call) => {
+    if (call.url === "/api/admin/check") return json({ isAdmin: true, csrfToken: "fresh-token" });
+    writeAttempts++;
+    if (writeAttempts === 1) return json({ message: "Security token missing or expired." }, 403);
+    return json({ id: 2 }, 201);
+  });
+  try {
+    const res = await csrfFetch("/api/artists", { method: "POST", credentials: "include" });
+    assert.equal(res.status, 201);
+    assert.equal(writeAttempts, 2, "one replay, never a loop");
+    const retryHeaders = stub.calls[2].init?.headers as Record<string, string>;
+    assert.equal(retryHeaders["x-csrf-token"], "fresh-token");
+  } finally {
+    stub.restore();
+  }
+});
+
+test("csrfFetch never tags a read", async () => {
+  setCsrfToken("token-9");
+  const stub = stubFetch(() => json([]));
+  try {
+    await csrfFetch("/api/categories/capacity", { credentials: "include" });
+    const headers = (stub.calls[0].init?.headers ?? {}) as Record<string, string>;
+    assert.equal("x-csrf-token" in headers, false);
   } finally {
     stub.restore();
   }

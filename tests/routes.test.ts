@@ -89,6 +89,29 @@ test("CSRF: the token from before sign-in no longer authorises writes", async ()
   assert.equal(stale.status, 403);
 });
 
+test("CSRF: the approve flow's POST /api/artists is refused bare and cleared with the token", async () => {
+  // Regression for "I cannot approve a nominee": the admin panel created the
+  // artist through its own fetch, which carried no x-csrf-token, so the valid
+  // session still got a 403 — and the panel blamed a category full of nominees
+  // that the capacity endpoint reported as 0/9.
+  const nomination = {
+    name: "New Artist",
+    genre: "Benga",
+    imageUrl: "https://images.example.com/new-artist.jpg",
+    category: "kamba-song",
+  };
+  const { cookie, csrfToken } = await signIn();
+
+  const bare = await post("/api/artists", nomination, { cookie });
+  assert.equal(bare.status, 403, "a cookie-authenticated create without a token must be refused");
+  const bareBody = (await bare.json()) as { message?: string };
+  assert.match(bareBody.message || "", /token/i, "and it must say so instead of pretending another reason");
+
+  const signed = await post("/api/artists", nomination, { cookie, "x-csrf-token": csrfToken });
+  assert.notEqual(signed.status, 403, "the token must carry the request past the security gate");
+  assert.notEqual(signed.status, 401, "a signed-in admin must clear requireAdmin");
+});
+
 test("logout is a CSRF-protected write that succeeds with a valid token", async () => {
   // The client refreshes a stale token and replays (see tests/csrf-client.test.ts),
   // so the endpoint itself must stay protected and still work.
