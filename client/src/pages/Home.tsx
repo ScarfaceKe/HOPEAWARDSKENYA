@@ -1,12 +1,22 @@
 import { Link, useLocation } from "wouter";
 import { motion } from "framer-motion";
-import { Trophy, ArrowRight, Crown, Disc3, Mic2, Star, Users, Music2, Heart, Radio, Sparkles, Copy, CheckCheck, Tv, Video, Camera, Film, Scissors, Wand2, Palette, Flame, Globe, MapPin, Zap, BookOpen, PartyPopper, CalendarDays, Laugh, Headphones, Guitar, Piano, Vote, Send, Smartphone, PlayCircle } from "lucide-react";
+import { Trophy, ArrowRight, ArrowUpRight, Crown, Disc3, Mic2, Star, Users, Music2, Heart, Radio, Sparkles, Copy, CheckCheck, Tv, Video, Camera, Film, Scissors, Wand2, Palette, Flame, Globe, MapPin, Zap, BookOpen, PartyPopper, CalendarDays, Laugh, Headphones, Guitar, Piano, Vote, Send, Smartphone, ShieldCheck, Ticket } from "lucide-react";
 import { CATEGORIES } from "@shared/schema";
 import { Countdown } from "@/components/Countdown";
 import { useVotingStatus } from "@/hooks/use-voting-status";
 import logoImg from "/images/logo.png";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+
+/* ── Section eyebrow ─────────────────────────────────────────── */
+function Eyebrow({ children, tone = "coral" }: { children: React.ReactNode; tone?: "coral" | "jade" | "rose" }) {
+  const color = tone === "jade" ? "text-accent" : tone === "rose" ? "text-secondary" : "text-primary";
+  return (
+    <span className={`inline-block text-[11px] font-extrabold uppercase tracking-[0.28em] ${color}`}>
+      {children}
+    </span>
+  );
+}
 
 function NominationShareBanner() {
   const [copied, setCopied] = useState(false);
@@ -25,38 +35,29 @@ function NominationShareBanner() {
   };
 
   return (
-    <motion.section
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: 0.2 }}
-      className="py-12"
-    >
+    <section className="py-10">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="relative rounded-3xl glass-strong glass-sheen overflow-hidden p-8 md:p-10">
-          <div className="absolute -top-20 -right-10 w-64 h-64 aurora-blob bg-accent/25 aurora-slow" />
-          <div className="absolute -bottom-24 -left-16 w-72 h-72 aurora-blob bg-secondary/20" />
-
-          <div className="relative z-10 flex flex-col md:flex-row items-center gap-8">
-            <div className="text-center md:text-left flex-1">
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full glass-gold mb-4 shadow-none">
-                <Mic2 className="w-3 h-3 text-primary" />
-                <span className="text-primary font-bold text-xs uppercase tracking-widest">Artists, DJs & MCs</span>
-              </div>
-              <h2 className="font-display text-3xl md:text-4xl text-white mb-3">
-                NOMINATE <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary to-secondary">YOURSELF</span>
+        <div className="relative rounded-[2rem] overflow-hidden border border-secondary/25"
+          style={{ background: "linear-gradient(120deg, rgba(240,100,66,0.16), rgba(228,88,130,0.16) 55%, rgba(38,178,152,0.14))" }}>
+          <div className="relative z-10 flex flex-col lg:flex-row items-center gap-8 p-8 md:p-10">
+            <div className="text-center lg:text-left flex-1">
+              <Eyebrow tone="rose">Artists · DJs · MCs</Eyebrow>
+              <h2 className="font-display text-4xl md:text-5xl text-foreground mt-3 mb-3 leading-[1.05]">
+                Nominate yourself
               </h2>
-              <p className="text-muted-foreground text-lg leading-relaxed max-w-xl">
-                Are you an artist, DJ or MC? Submit your own nomination now — voting is live! Share this link with every artist you know.
+              <p className="text-muted-foreground text-lg leading-relaxed max-w-xl mx-auto lg:mx-0">
+                Are you an artist, DJ or MC? Submit your own nomination now — voting opens on 25 October.
+                Share this link with every artist you know.
               </p>
             </div>
 
-            <div className="flex flex-col items-center gap-3 shrink-0 w-full md:w-auto">
+            <div className="flex flex-col items-center gap-3 shrink-0 w-full lg:w-auto">
               <a
                 href={waLink}
                 target="_blank"
                 rel="noopener noreferrer"
                 data-testid="button-whatsapp-share"
-                className="w-full md:w-auto flex items-center justify-center gap-3 px-8 py-4 bg-[#25D366] hover:bg-[#1ebe5d] text-white font-display text-xl rounded-2xl transition-colors active:scale-95 shadow-lg shadow-green-900/30"
+                className="w-full lg:w-auto flex items-center justify-center gap-3 px-8 py-4 bg-[#25D366] hover:brightness-110 text-white font-display text-xl rounded-2xl transition active:scale-95 shadow-lg shadow-black/40"
               >
                 <svg viewBox="0 0 24 24" className="w-6 h-6 fill-current" xmlns="http://www.w3.org/2000/svg">
                   <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
@@ -64,25 +65,23 @@ function NominationShareBanner() {
                 SHARE ON WHATSAPP
               </a>
 
-              <div className="flex items-center gap-2 w-full md:w-auto glass rounded-xl px-4 py-3">
-                <span className="text-muted-foreground text-sm font-mono truncate flex-1 max-w-[200px]">
+              <div className="flex items-center gap-2 w-full lg:w-auto bg-black/35 border border-white/10 rounded-2xl px-4 py-3">
+                <span className="text-muted-foreground text-sm font-mono truncate flex-1 max-w-[220px]">
                   {nominationUrl}
                 </span>
                 <button
                   onClick={handleCopy}
                   data-testid="button-copy-link"
-                  className="text-accent hover:text-white transition-colors shrink-0"
+                  className="text-accent hover:text-foreground transition-colors shrink-0"
                   title="Copy link"
                 >
-                  {copied ? <CheckCheck className="w-4 h-4 text-green-400" /> : <Copy className="w-4 h-4" />}
+                  {copied ? <CheckCheck className="w-4 h-4 text-accent" /> : <Copy className="w-4 h-4" />}
                 </button>
               </div>
-              {copied && (
-                <span className="text-xs text-green-400 font-semibold">Link copied!</span>
-              )}
+              {copied && <span className="text-xs text-accent font-semibold">Link copied!</span>}
 
               <Link href="/nominate">
-                <span className="text-sm text-muted-foreground hover:text-white transition-colors underline underline-offset-4 cursor-pointer">
+                <span className="text-sm text-muted-foreground hover:text-foreground transition-colors underline underline-offset-4 cursor-pointer">
                   Or fill in the form directly →
                 </span>
               </Link>
@@ -90,7 +89,7 @@ function NominationShareBanner() {
           </div>
         </div>
       </div>
-    </motion.section>
+    </section>
   );
 }
 
@@ -150,15 +149,16 @@ const categoryIcons: Record<string, any> = {
   "comedian": Laugh,
 };
 
+/* Warm sunset tiles instead of the old neon palettes */
 const groupColors: Record<string, string> = {
-  "Main Awards":                    "from-yellow-500 to-amber-600",
-  "Media & Entertainment":          "from-purple-500 to-violet-600",
-  "Performance & Creative":         "from-cyan-400 to-teal-600",
-  "Production & Behind the Scenes": "from-blue-400 to-indigo-600",
-  "Creative & Fashion":             "from-pink-400 to-rose-500",
-  "Special Music":                  "from-green-400 to-emerald-600",
-  "Regional & Cultural":            "from-orange-400 to-red-500",
-  "Special Recognition":            "from-amber-400 to-yellow-600",
+  "Main Awards":                    "from-orange-500 to-rose-500",
+  "Media & Entertainment":          "from-fuchsia-500 to-purple-600",
+  "Performance & Creative":         "from-teal-400 to-emerald-600",
+  "Production & Behind the Scenes": "from-sky-400 to-indigo-500",
+  "Creative & Fashion":             "from-rose-400 to-pink-500",
+  "Special Music":                  "from-emerald-400 to-teal-600",
+  "Regional & Cultural":            "from-amber-400 to-orange-600",
+  "Special Recognition":            "from-orange-400 to-amber-500",
 };
 
 const groupIconMap: Record<string, any> = {
@@ -172,54 +172,11 @@ const groupIconMap: Record<string, any> = {
   "Special Recognition":            Crown,
 };
 
-function HowItWorks() {
-  const steps = [
-    { icon: Vote,    tint: "gold",  title: "PICK A CATEGORY",   desc: "60+ award categories across music, media, fashion, production and culture." },
-    { icon: Smartphone, tint: "accent", title: "PAY 10 KES",     desc: "One vote costs just 10 shillings via MegaPay. Vote as many times as you like." },
-    { icon: Flame,  tint: "green", title: "RALLY YOUR FANS",   desc: "Share your profile link. Every vote pushes you closer to the trophy." },
-  ] as const;
-
-  const tintClass = {
-    gold:   "glass-gold",
-    accent: "glass-strong",
-    green:  "glass-green",
-  } as const;
-
-  return (
-    <section className="pb-24 relative">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-center gap-3 mb-12">
-          <span className="h-px w-16 bg-gradient-to-r from-transparent to-white/20" />
-          <h2 className="font-display text-2xl md:text-3xl text-white tracking-widest text-center">HOW IT <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary to-secondary">WORKS</span></h2>
-          <span className="h-px w-16 bg-gradient-to-l from-transparent to-white/20" />
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-          {steps.map((s, i) => (
-            <motion.div
-              key={s.title}
-              initial={{ opacity: 0, y: 24 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true, margin: "-60px" }}
-              transition={{ delay: i * 0.12, duration: 0.5 }}
-              className={`relative rounded-3xl ${tintClass[s.tint]} glass-sheen p-8 text-center`}
-            >
-              <div className="w-16 h-16 mx-auto mb-5 rounded-2xl flex items-center justify-center"
-                style={{
-                  background: s.tint === "gold" ? "rgba(217,161,12,0.15)" : s.tint === "green" ? "rgba(52,211,25,0.15)" : "rgba(0,188,163,0.15)",
-                  border: `1px solid ${s.tint === "gold" ? "rgba(217,161,12,0.4)" : s.tint === "green" ? "rgba(52,211,25,0.4)" : "rgba(0,188,163,0.4)"}`,
-                }}>
-                <s.icon className={`w-8 h-8 ${s.tint === "gold" ? "text-primary" : s.tint === "green" ? "text-secondary" : "text-accent"}`} />
-              </div>
-              <span className="absolute top-5 right-6 font-display text-4xl text-white/10 select-none">0{i + 1}</span>
-              <h3 className="font-display text-lg text-white mb-2">{s.title}</h3>
-              <p className="text-muted-foreground text-sm leading-relaxed">{s.desc}</p>
-            </motion.div>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
+const HOW_STEPS = [
+  { icon: Vote,       title: "Pick a category",  desc: "Browse 60+ categories across music, media, fashion, production and culture.", tone: "coral" },
+  { icon: Smartphone, title: "Vote for 10 KES",  desc: "Pay with M-Pesa through MegaPay. One vote is 10 shillings — vote as often as you like.", tone: "rose" },
+  { icon: Flame,      title: "Rally your people", desc: "Share your nominee link. Every vote pushes your favourite closer to the trophy.", tone: "jade" },
+] as const;
 
 export default function Home() {
   const { phase } = useVotingStatus();
@@ -240,332 +197,352 @@ export default function Home() {
     : [];
 
   const heroBadge = phase === "pre"
-    ? { text: "Nominations Open — Voting Starts 25 Oct" }
+    ? { text: "Nominations open — voting starts 25 Oct" }
     : phase === "open"
-    ? { text: "Live Voting Open" }
-    : { text: "🏆 Results Are Out — Hall of Fame Now Open!" };
+    ? { text: "Live voting open" }
+    : { text: "Results out — Hall of Fame is open" };
 
   const heroDesc = phase === "pre"
-    ? "Nominate yourself or your favourite artist now. Voting starts 25th October 2026 at midnight. 1 Vote = 10 KES."
+    ? "Nominate yourself or your favourite artist now. Voting starts 25th October 2026 at midnight — 1 vote is 10 KES."
     : phase === "open"
-    ? "Vote for the best Artists, DJs, MCs & more. Pick a category and back your favourite. 1 Vote = 10 KES."
-    : "The votes have been counted. The winners have been crowned. See who won across every category in the Hope Awards Kenya 2026 Hall of Fame.";
+    ? "Vote for Kenya's best artists, DJs, MCs and more. Pick a category and back your favourite — 1 vote is 10 KES."
+    : "The votes have been counted and the winners crowned. See who took it home across every category.";
 
-  const totalContenders = activeCategories.reduce((acc: number, c: any) => acc + (categoryCounts[c.id] ?? 0), 0);
+  const facts = [
+    { icon: Trophy,       label: "Categories",     value: "60+" },
+    { icon: Star,         label: "Nominees live",  value: capacityData ? `${activeCategories.reduce((a: number, c: any) => a + (categoryCounts[c.id] ?? 0), 0)}` : "—" },
+    { icon: Vote,         label: "Cost per vote",  value: "10 KES" },
+    { icon: CalendarDays, label: "Voting closes",  value: "6 Dec" },
+  ];
 
   return (
     <div className="min-h-screen">
 
-      {/* ═══════════ HERO — layered aurora glass ═══════════ */}
-      <section className="relative pt-20 pb-28">
-        {/* aurora field */}
-        <div className="absolute inset-0 overflow-hidden pointer-events-none" aria-hidden="true">
-          <div className="absolute -top-32 -left-32 w-[34rem] h-[34rem] rounded-full aurora-blob aurora-slow" style={{ background: "radial-gradient(circle, rgba(217,161,12,0.22), transparent 65%)" }} />
-          <div className="absolute top-40 -right-40 w-[30rem] h-[30rem] rounded-full aurora-blob" style={{ background: "radial-gradient(circle, rgba(0,188,163,0.20), transparent 65%)" }} />
-          <div className="absolute -bottom-56 left-1/3 w-[36rem] h-[36rem] rounded-full aurora-blob" style={{ background: "radial-gradient(circle, rgba(52,211,25,0.14), transparent 65%)" }} />
-          <div className="absolute top-1/3 left-1/4 w-72 h-72 rounded-full aurora-blob" style={{ background: "radial-gradient(circle, rgba(168,85,247,0.16), transparent 65%)" }} />
+      {/* ═══════════ HERO ═══════════ */}
+      <section className="relative overflow-hidden">
+        <div aria-hidden="true" className="absolute inset-0 pointer-events-none">
+          <div className="absolute -top-40 -left-24 w-[38rem] h-[38rem] rounded-full aurora-blob aurora-slow" style={{ background: "radial-gradient(circle, rgba(240,100,66,0.22), transparent 62%)" }} />
+          <div className="absolute -top-24 right-[6%] w-[30rem] h-[30rem] rounded-full aurora-blob" style={{ background: "radial-gradient(circle, rgba(228,88,130,0.18), transparent 62%)" }} />
+          <div className="absolute bottom-[-14rem] left-[38%] w-[34rem] h-[34rem] rounded-full aurora-blob" style={{ background: "radial-gradient(circle, rgba(38,178,152,0.15), transparent 62%)" }} />
         </div>
-        {/* floating glass orbs near the headline */}
-        <motion.div
-          aria-hidden="true"
-          initial={{ opacity: 0, scale: 0.6 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ delay: 0.7, duration: 0.6 }}
-          className="hidden lg:block absolute top-40 left-[8%] w-24 h-24 rounded-3xl glass glass-sheen rotate-12 pointer-events-none"
-        />
-        <motion.div
-          aria-hidden="true"
-          initial={{ opacity: 0, scale: 0.6 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ delay: 0.9, duration: 0.6 }}
-          className="hidden lg:block absolute top-72 right-[10%] w-16 h-16 rounded-2xl glass-gold rotate-6 pointer-events-none"
-        />
-        <motion.div
-          aria-hidden="true"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 1.1, duration: 0.6 }}
-          className="hidden lg:block absolute top-24 right-[22%] w-10 h-10 rounded-full glass-strong pointer-events-none"
-        />
 
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
-          <motion.div
-            initial={{ opacity: 0, y: 30 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6 }}
-            className="text-center max-w-4xl mx-auto"
-          >
-            <div className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-full mb-8 glass-sheen ${
-              phase === "open"   ? "glass-green" :
-              phase === "closed" ? "glass-gold" : "glass-strong"
-            }`}>
-              <span className="relative flex h-3 w-3">
-                <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
-                  phase === "open" ? "bg-secondary" : phase === "closed" ? "bg-primary" : "bg-accent"
-                }`}></span>
-                <span className={`relative inline-flex rounded-full h-3 w-3 ${
-                  phase === "open" ? "bg-secondary" : phase === "closed" ? "bg-primary" : "bg-accent"
-                }`}></span>
-              </span>
-              <span className={`font-bold tracking-widest text-xs uppercase ${
-                phase === "open" ? "text-secondary" : phase === "closed" ? "text-primary" : "text-accent"
-              }`} data-testid="status-voting-phase">
-                {heroBadge.text}
-              </span>
-            </div>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-14 pb-16 relative">
+          <div className="grid lg:grid-cols-[1.05fr_0.95fr] gap-14 lg:gap-12 items-center">
 
-            {/* Logo — untouched original asset inside a glass stage */}
+            {/* ── Copy column ── */}
             <motion.div
-              initial={{ scale: 0.85, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              transition={{ duration: 0.6, delay: 0.08 }}
-              className="relative inline-block mb-8"
+              initial={{ opacity: 0, y: 24 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6 }}
+              className="text-center lg:text-left"
             >
-              <div className="absolute -inset-8 rounded-full pointer-events-none" style={{ background: "radial-gradient(circle, rgba(217,161,12,0.25), transparent 70%)" }} />
-              <div className="relative w-44 h-44 md:w-56 md:h-56 rounded-[2.5rem] glass-strong glass-sheen flex items-center justify-center p-5 shadow-2xl shadow-primary/10">
-                <motion.img
-                  src={logoImg}
-                  alt="Hope Awards Kenya"
-                  className="w-full h-full object-contain drop-shadow-2xl"
-                  initial={{ scale: 0.92 }}
-                  animate={{ scale: 1 }}
-                  transition={{ duration: 0.5, delay: 0.15 }}
-                />
-              </div>
-              {/* orbiting sparkle accents around the logo stage */}
-              <motion.div
-                aria-hidden="true"
-                className="absolute -top-3 -right-3 w-8 h-8 rounded-full glass-gold hidden md:flex items-center justify-center"
-                animate={{ y: [0, -6, 0], rotate: [0, 12, 0] }}
-                transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
-              >
-                <Sparkles className="w-4 h-4 text-primary" />
-              </motion.div>
-              <motion.div
-                aria-hidden="true"
-                className="absolute -bottom-2 -left-4 w-7 h-7 rounded-full glass-green hidden md:flex items-center justify-center"
-                animate={{ y: [0, 6, 0] }}
-                transition={{ duration: 5, repeat: Infinity, ease: "easeInOut", delay: 0.8 }}
-              >
-                <PlayCircle className="w-4 h-4 text-secondary" />
-              </motion.div>
-            </motion.div>
-
-            <h1 className="font-display text-5xl md:text-7xl lg:text-8xl text-white leading-none mb-4">
-              HOPE AWARDS <br />
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary via-accent to-secondary neon-text-gold">
-                KENYA
-              </span>
-            </h1>
-
-            <div className="flex items-center justify-center gap-3 mb-6" data-testid="badge-edition">
-              <span className="h-px w-10 bg-gradient-to-r from-transparent to-primary/60" />
-              <span className="px-4 py-1.5 rounded-full glass-gold">
-                <span className="font-display text-sm md:text-base tracking-[0.25em] text-primary">
-                  3<span className="text-primary/80">RD</span> EDITION · 2026
+              <div className={`inline-flex items-center gap-2.5 px-4 py-2 rounded-full glass ${
+                phase === "open" ? "glass-green" : phase === "closed" ? "glass-rose" : ""
+              }`}>
+                <span className="relative flex h-2.5 w-2.5">
+                  <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-70 ${
+                    phase === "open" ? "bg-accent" : phase === "closed" ? "bg-secondary" : "bg-primary"
+                  }`} />
+                  <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${
+                    phase === "open" ? "bg-accent" : phase === "closed" ? "bg-secondary" : "bg-primary"
+                  }`} />
                 </span>
-              </span>
-              <span className="h-px w-10 bg-gradient-to-l from-transparent to-primary/60" />
-            </div>
+                <span className="text-[11px] font-extrabold uppercase tracking-[0.22em] text-foreground/90"
+                  data-testid="status-voting-phase">
+                  {heroBadge.text}
+                </span>
+              </div>
 
-            <p className="text-xl md:text-2xl text-muted-foreground font-light mb-8 max-w-2xl mx-auto leading-relaxed">
-              {heroDesc}
-            </p>
+              <p className="mt-7 mb-4" data-testid="badge-edition">
+                <Eyebrow>3rd Edition · 2026 · Kenya</Eyebrow>
+              </p>
 
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-10">
-              {phase === "closed" ? (
-                <Link href="/hall-of-fame" data-testid="button-hall-of-fame">
-                  <button className="w-full sm:w-auto px-10 py-4 btn-shine bg-gradient-to-r from-yellow-500 to-amber-400 text-black font-display text-xl rounded-2xl transition-all hover:brightness-110 active:scale-95 shadow-lg shadow-yellow-500/30 flex items-center justify-center gap-3">
-                    <Trophy className="w-6 h-6" />
-                    VIEW HALL OF FAME
+              <h1 className="font-display text-[3.25rem] leading-[0.95] sm:text-6xl lg:text-7xl xl:text-[5.25rem] text-foreground">
+                Hope Awards
+                <br />
+                <span className="italic text-transparent bg-clip-text bg-gradient-to-r from-[hsl(38,95%,64%)] via-[hsl(16,88%,62%)] to-[hsl(340,78%,68%)]">
+                  Kenya
+                </span>
+              </h1>
+
+              <p className="mt-6 text-lg sm:text-xl text-muted-foreground max-w-xl mx-auto lg:mx-0 leading-relaxed">
+                {heroDesc}
+              </p>
+
+              <div className="mt-9 flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-3">
+                {phase === "closed" ? (
+                  <Link href="/hall-of-fame" data-testid="button-hall-of-fame">
+                    <button className="w-full sm:w-auto px-9 py-4 rounded-2xl bg-gradient-to-r from-[hsl(16,88%,58%)] to-[hsl(340,72%,62%)] text-[hsl(20,40%,8%)] font-display text-xl shadow-xl shadow-black/40 transition hover:brightness-110 active:scale-95 flex items-center justify-center gap-3">
+                      <Trophy className="w-5 h-5" />
+                      View the Hall of Fame
+                    </button>
+                  </Link>
+                ) : (
+                  <button
+                    data-testid="button-scroll-categories"
+                    onClick={() => document.getElementById('categories')?.scrollIntoView({ behavior: 'smooth' })}
+                    className="w-full sm:w-auto px-9 py-4 rounded-2xl bg-gradient-to-r from-[hsl(16,88%,58%)] to-[hsl(340,72%,62%)] text-[hsl(20,40%,8%)] font-display text-xl shadow-xl shadow-black/40 transition hover:brightness-110 active:scale-95 flex items-center justify-center gap-3"
+                  >
+                    Pick a category
+                    <ArrowRight className="w-5 h-5" />
                   </button>
-                </Link>
-              ) : (
-                <button
-                  data-testid="button-scroll-categories"
-                  onClick={() => document.getElementById('categories')?.scrollIntoView({ behavior: 'smooth' })}
-                  className="w-full sm:w-auto px-8 py-4 btn-shine bg-gradient-to-r from-primary to-amber-400 text-black font-display text-xl rounded-2xl transition-all active:scale-95 shadow-lg shadow-primary/30 flex items-center justify-center gap-3"
-                >
-                  PICK A CATEGORY
-                  <ArrowRight className="w-5 h-5" />
-                </button>
-              )}
-              {phase === "pre" && (
-                <Link href="/nominate">
+                )}
+
+                <Link href={phase === "pre" ? "/nominate" : "/hall-of-fame"}>
                   <button
                     data-testid="button-nominate-hero"
-                    className="w-full sm:w-auto px-8 py-4 glass-strong text-white font-display text-lg rounded-2xl transition-all hover:bg-white/10 flex items-center justify-center gap-3 cursor-pointer"
+                    className="w-full sm:w-auto px-8 py-4 rounded-2xl glass text-foreground font-display text-xl transition hover:bg-white/10 active:scale-95 flex items-center justify-center gap-3 cursor-pointer"
                   >
-                    <Send className="w-5 h-5 text-accent" />
-                    NOMINATE
+                    {phase === "pre" ? <><Send className="w-5 h-5 text-accent" /> Nominate</> : <><Trophy className="w-5 h-5 text-primary" /> Hall of Fame</>}
                   </button>
                 </Link>
-              )}
-            </div>
+              </div>
 
+              <div className="mt-8 flex flex-wrap items-center justify-center lg:justify-start gap-x-6 gap-y-3 text-sm text-muted-foreground">
+                <span className="inline-flex items-center gap-2"><ShieldCheck className="w-4 h-4 text-accent" /> Secure M-Pesa checkout</span>
+                <span className="inline-flex items-center gap-2"><Ticket className="w-4 h-4 text-primary" /> 1 vote · 10 KES</span>
+                <span className="inline-flex items-center gap-2"><MapPin className="w-4 h-4 text-secondary" /> Awards night · Nairobi</span>
+              </div>
+            </motion.div>
+
+            {/* ── Logo stage ── */}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.94 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 0.7, delay: 0.1 }}
+              className="relative mx-auto w-full max-w-md"
+            >
+              <div className="relative rounded-[2.75rem] p-[1.5px] ring-sunset shadow-2xl shadow-black/50">
+                <div className="rounded-[2.65rem] bg-[hsl(285,30%,8%)] px-8 py-12 sm:px-12 sm:py-16 flex items-center justify-center">
+                  <img
+                    src={logoImg}
+                    alt="Hope Awards Kenya"
+                    className="w-48 h-48 sm:w-56 sm:h-56 object-contain drop-shadow-2xl"
+                  />
+                </div>
+              </div>
+
+              {/* Anchored info chips with real content */}
+              <div className="absolute -left-3 sm:-left-8 top-10 glass-strong rounded-2xl px-4 py-3 shadow-xl shadow-black/40">
+                <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Awards night</p>
+                <p className="font-display text-lg text-foreground leading-tight">Date to be announced</p>
+              </div>
+              <div className="absolute -right-2 sm:-right-6 bottom-28 glass-gold rounded-2xl px-4 py-3 shadow-xl shadow-black/40">
+                <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-primary">Voting opens</p>
+                <p className="font-display text-lg text-foreground leading-tight">25 October</p>
+              </div>
+              <div className="absolute -right-1 sm:-right-4 top-6 glass-green rounded-2xl px-4 py-3 shadow-xl shadow-black/40">
+                <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-accent">Venue</p>
+                <p className="font-display text-lg text-foreground leading-tight">Express Way Lounge</p>
+              </div>
+            </motion.div>
+          </div>
+
+          {/* ── Countdown band ── */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.25 }}
+            className="mt-16 rounded-[2rem] glass-strong pt-8 pb-6 px-4 sm:px-8"
+          >
             <Countdown />
           </motion.div>
         </div>
       </section>
 
-      {/* ═══════════ GLASS STATS STRIP ═══════════ */}
-      <section className="pb-14 relative">
+      {/* ═══════════ FACTS STRIP ═══════════ */}
+      <section className="border-y border-white/5 bg-white/[0.015]">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true, margin: "-40px" }}
-            transition={{ duration: 0.5 }}
-            className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4"
-          >
-            {[
-              { value: "60+",            label: "Categories",        icon: Trophy },
-              { value: totalContenders > 0 ? `${totalContenders}` : "—", label: "Nominees", icon: Star },
-              { value: "10 KES",         label: "Per Vote",          icon: Vote },
-              { value: "6 Dec",          label: "Voting Ends",       icon: CalendarDays },
-            ].map((stat) => (
-              <div key={stat.label} className="rounded-2xl glass glass-sheen p-5 text-center">
-                <stat.icon className="w-5 h-5 text-primary mx-auto mb-2" />
-                <p className="font-display text-2xl md:text-3xl text-white mb-0.5">{stat.value}</p>
-                <p className="text-[10px] md:text-xs text-muted-foreground font-bold tracking-[0.2em] uppercase">{stat.label}</p>
+          <div className="grid grid-cols-2 lg:grid-cols-4 divide-x divide-y lg:divide-y-0 divide-white/5">
+            {facts.map((f) => (
+              <div key={f.label} className="flex items-center gap-4 px-5 py-7">
+                <div className="w-11 h-11 rounded-xl glass flex items-center justify-center shrink-0">
+                  <f.icon className="w-5 h-5 text-primary" />
+                </div>
+                <div className="min-w-0">
+                  <p className="font-display text-2xl text-foreground leading-none mb-1">{f.value}</p>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground truncate">{f.label}</p>
+                </div>
               </div>
             ))}
-          </motion.div>
+          </div>
         </div>
       </section>
 
-      {/* ── Awards Night Banner ─────────────────────────────── */}
-      <motion.section
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.15 }}
-        className="pb-14"
-      >
+      {/* ═══════════ AWARDS NIGHT ═══════════ */}
+      <section className="py-16">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="relative rounded-3xl glass-strong glass-sheen overflow-hidden p-6 md:p-8">
-            <div className="absolute -top-16 -left-16 w-56 h-56 aurora-blob bg-primary/25 aurora-slow" />
-            <div className="absolute -bottom-16 -right-16 w-56 h-56 aurora-blob bg-secondary/20" />
-
-            <div className="relative z-10 flex flex-col md:flex-row items-center gap-6 text-center md:text-left">
-              {/* Icon */}
-              <div className="shrink-0 flex items-center justify-center w-20 h-20 rounded-2xl glass-gold">
-                <PartyPopper className="w-10 h-10 text-primary" />
-              </div>
-
-              {/* Text */}
-              <div className="flex-1">
-                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full glass-green mb-3">
-                  <span className="relative flex h-2 w-2">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-secondary opacity-75" />
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-secondary" />
-                  </span>
-                  <span className="text-secondary font-bold text-xs uppercase tracking-widest">Awards Night</span>
-                </div>
-                <h2 className="font-display text-3xl md:text-5xl text-white leading-tight mb-2">
-                  AWARDS NIGHT —{" "}
-                  <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary via-accent to-secondary neon-text-gold">
-                    DATE TO BE ANNOUNCED
-                  </span>
+          <div className="relative rounded-[2.25rem] overflow-hidden border border-primary/25"
+            style={{ background: "linear-gradient(115deg, rgba(240,100,66,0.20), rgba(228,88,130,0.14) 50%, rgba(38,178,152,0.14))" }}>
+            <div className="relative z-10 grid lg:grid-cols-[1.6fr_1fr] gap-8 items-center p-8 md:p-12">
+              <div className="text-center lg:text-left">
+                <Eyebrow tone="rose">The big night</Eyebrow>
+                <h2 className="font-display text-4xl md:text-5xl text-foreground mt-3 leading-[1.05]">
+                  Awards night is coming
                 </h2>
-                <div className="flex flex-col sm:flex-row items-center md:items-start gap-3 mt-3 justify-center md:justify-start">
-                  <div className="flex items-center gap-2 text-white/90 font-semibold text-lg">
-                    <MapPin className="w-5 h-5 text-primary shrink-0" />
-                    <span>Express Way Lounge, Mombasa Road</span>
-                  </div>
-                  <span className="hidden sm:block text-white/30">·</span>
-                  <div className="flex items-center gap-2 text-white/90 font-semibold text-lg">
-                    <CalendarDays className="w-5 h-5 text-secondary shrink-0" />
-                    <span>Starts at <span className="text-secondary font-bold">4:00 PM</span></span>
-                  </div>
+                <p className="text-muted-foreground text-lg mt-4 max-w-xl mx-auto lg:mx-0">
+                  Winners are crowned live at Express Way Lounge, Mombasa Road. Doors open at 4:00 PM — the exact date will be announced here first.
+                </p>
+                <div className="mt-6 flex flex-wrap items-center justify-center lg:justify-start gap-x-6 gap-y-3 text-foreground/85 font-semibold">
+                  <span className="inline-flex items-center gap-2"><MapPin className="w-5 h-5 text-primary" /> Express Way Lounge, Mombasa Road</span>
+                  <span className="inline-flex items-center gap-2"><CalendarDays className="w-5 h-5 text-accent" /> Doors 4:00 PM</span>
                 </div>
               </div>
-
-              {/* Badge */}
-              <div className="shrink-0 flex flex-col items-center gap-1 px-6 py-4 rounded-2xl glass-gold">
-                <span className="font-display text-xs text-primary uppercase tracking-widest">Voting starts</span>
-                <span className="font-display text-4xl text-white leading-none">25</span>
-                <span className="font-display text-xs text-white/60 uppercase tracking-widest">October 2026</span>
+              <div className="rounded-[1.75rem] glass-strong px-6 py-7 text-center">
+                <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-primary">Voting opens</p>
+                <p className="font-display text-6xl text-foreground leading-none my-2">25</p>
+                <p className="text-sm font-bold uppercase tracking-[0.2em] text-muted-foreground">October 2026 · Midnight</p>
               </div>
             </div>
           </div>
         </div>
-      </motion.section>
+      </section>
 
       {phase === "pre" && <NominationShareBanner />}
 
       {/* ═══════════ HOW IT WORKS ═══════════ */}
-      <HowItWorks />
-
-      <section id="categories" className="pb-24 relative">
+      <section className="py-16">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-
-          <div className="rounded-3xl glass-strong glass-sheen p-8 md:p-10 mb-8 relative overflow-hidden">
-            <div className="absolute -top-20 -right-24 w-72 h-72 aurora-blob bg-primary/20" />
-            <div className="relative z-10 flex flex-col md:flex-row md:items-center gap-6 mb-10">
-              <div className="w-14 h-14 glass-gold rounded-2xl flex items-center justify-center shrink-0">
-                <Trophy className="w-7 h-7 text-primary" />
+          <div className="max-w-2xl mb-10">
+            <Eyebrow>Three steps</Eyebrow>
+            <h2 className="font-display text-4xl md:text-5xl text-foreground mt-3">How voting works</h2>
+          </div>
+          <div className="grid md:grid-cols-3 gap-5">
+            {HOW_STEPS.map((s, i) => (
+              <div
+                key={s.title}
+                className="group relative rounded-[1.75rem] border border-white/8 bg-white/[0.03] p-7 transition hover:bg-white/[0.06]"
+              >
+                <span className="absolute top-6 right-7 font-display text-5xl leading-none text-foreground/10 select-none">
+                  0{i + 1}
+                </span>
+                <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mb-5 ${
+                  s.tone === "coral" ? "glass-gold" : s.tone === "rose" ? "glass-rose" : "glass-green"
+                }`}>
+                  <s.icon className={`w-7 h-7 ${
+                    s.tone === "coral" ? "text-primary" : s.tone === "rose" ? "text-secondary" : "text-accent"
+                  }`} />
+                </div>
+                <h3 className="font-display text-2xl text-foreground mb-2">{s.title}</h3>
+                <p className="text-muted-foreground leading-relaxed">{s.desc}</p>
               </div>
-              <div className="flex-1">
-                <h2 className="font-display text-3xl md:text-4xl text-white">AWARD CATEGORIES</h2>
-                <p className="text-muted-foreground text-sm mt-1">
-                  {!capacityData
-                    ? "Loading categories…"
-                    : activeCategories.length > 0
-                    ? `${activeCategories.length} categories — pick one to vote`
-                    : "Categories will appear here once nominees are approved"}
-                </p>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ═══════════ CATEGORIES ═══════════ */}
+      <section id="categories" className="py-16">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-10">
+            <div>
+              <Eyebrow>Award categories</Eyebrow>
+              <h2 className="font-display text-4xl md:text-5xl text-foreground mt-3">Choose your category</h2>
+            </div>
+            <p className="text-muted-foreground text-sm font-semibold">
+              {!capacityData
+                ? "Loading categories…"
+                : activeCategories.length > 0
+                ? `${activeCategories.length} live ${activeCategories.length === 1 ? "category" : "categories"}`
+                : "Categories appear here once nominees are approved"}
+            </p>
+          </div>
+
+          {activeCategories.length === 0 && capacityData && (
+            <div className="rounded-[1.75rem] glass px-8 py-12 text-center">
+              <Trophy className="w-8 h-8 text-primary mx-auto mb-4" />
+              <p className="font-display text-2xl text-foreground mb-2">Nominees are being approved</p>
+              <p className="text-muted-foreground max-w-md mx-auto">
+                Each category goes live once two nominees are approved in it. Check back shortly — or nominate yourself now.
+              </p>
+              <Link href="/nominate">
+                <button className="mt-6 px-7 py-3 rounded-xl bg-gradient-to-r from-[hsl(16,88%,58%)] to-[hsl(340,72%,62%)] text-[hsl(20,40%,8%)] font-display text-lg transition hover:brightness-110 active:scale-95">
+                  Nominate yourself
+                </button>
+              </Link>
+            </div>
+          )}
+
+          {(() => {
+            const groups = Array.from(new Set(activeCategories.map((c: any) => c.group)));
+            return groups.map((group) => {
+              const GroupIcon = groupIconMap[group as string] || Trophy;
+              const gradient = groupColors[group as string] || "from-orange-400 to-rose-500";
+              const cats = activeCategories.filter((c: any) => c.group === group);
+              if (cats.length === 0) return null;
+              return (
+                <div key={group as string} className="mb-12 last:mb-0">
+                  <div className="flex items-center gap-3 mb-5">
+                    <div className={`w-9 h-9 rounded-xl bg-gradient-to-br ${gradient} flex items-center justify-center shrink-0 shadow-lg shadow-black/40`}>
+                      <GroupIcon className="w-4 h-4 text-white" />
+                    </div>
+                    <h3 className="font-display text-xl text-foreground">{group as string}</h3>
+                    <div className="flex-1 h-px bg-white/8" />
+                    <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
+                      {cats.length} {cats.length === 1 ? "category" : "categories"}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {cats.map((cat) => {
+                      const Icon = categoryIcons[cat.id] || Trophy;
+                      const count = categoryCounts[cat.id] ?? 0;
+                      return (
+                        <Link key={cat.id} href={`/category/${cat.id}`} data-testid={`link-category-${cat.id}`}>
+                          <div className="group flex items-center gap-4 rounded-2xl border border-white/8 bg-white/[0.03] p-4 cursor-pointer transition hover:bg-white/[0.07] hover:border-primary/30">
+                            <div className={`w-11 h-11 rounded-xl bg-gradient-to-br ${gradient} flex items-center justify-center shrink-0 shadow-md shadow-black/40`}>
+                              <Icon className="w-5 h-5 text-white" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <h4 className="font-display text-lg text-foreground leading-tight group-hover:text-primary transition-colors truncate">
+                                {cat.name}
+                              </h4>
+                              <p className="text-xs text-muted-foreground mt-0.5">
+                                {count} {count === 1 ? "contender" : "contenders"}
+                              </p>
+                            </div>
+                            <ArrowUpRight className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors shrink-0" />
+                          </div>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            });
+          })()}
+        </div>
+      </section>
+
+      {/* ═══════════ CLOSING CTA ═══════════ */}
+      <section className="pb-20">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="relative overflow-hidden rounded-[2.25rem] border border-white/8"
+            style={{ background: "linear-gradient(120deg, rgba(38,178,152,0.16), rgba(240,100,66,0.16) 55%, rgba(228,88,130,0.16))" }}>
+            <div className="relative z-10 px-8 py-14 md:px-14 text-center">
+              <Eyebrow tone="jade">Every vote counts</Eyebrow>
+              <h2 className="font-display text-4xl md:text-5xl text-foreground mt-3 mb-4 max-w-3xl mx-auto leading-[1.05]">
+                Kenya decides. Ten shillings at a time.
+              </h2>
+              <p className="text-muted-foreground text-lg max-w-2xl mx-auto mb-8">
+                Support the artists who carry Kenyan music, media and culture. Voting closes on 6th December 2026.
+              </p>
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+                <button
+                  data-testid="button-scroll-categories-results"
+                  onClick={() => document.getElementById('categories')?.scrollIntoView({ behavior: 'smooth' })}
+                  className="w-full sm:w-auto px-9 py-4 rounded-2xl bg-gradient-to-r from-[hsl(16,88%,58%)] to-[hsl(340,72%,62%)] text-[hsl(20,40%,8%)] font-display text-xl shadow-xl shadow-black/40 transition hover:brightness-110 active:scale-95 flex items-center justify-center gap-3"
+                >
+                  <Vote className="w-5 h-5" />
+                  Start voting
+                </button>
+                <Link href="/nominate">
+                  <button className="w-full sm:w-auto px-8 py-4 rounded-2xl glass text-foreground font-display text-xl transition hover:bg-white/10 active:scale-95 cursor-pointer flex items-center justify-center gap-3">
+                    <Send className="w-5 h-5 text-accent" />
+                    Nominate an artist
+                  </button>
+                </Link>
               </div>
             </div>
-
-            {(() => {
-              const groups = Array.from(new Set(activeCategories.map((c: any) => c.group)));
-              return groups.map((group) => {
-                const GroupIcon = groupIconMap[group as string] || Trophy;
-                const gradient = groupColors[group as string] || "from-gray-400 to-gray-600";
-                const cats = activeCategories.filter((c: any) => c.group === group);
-                if (cats.length === 0) return null;
-                return (
-                  <div key={group as string} className="mb-10 last:mb-0 relative z-10">
-                    <div className="flex items-center gap-3 mb-6">
-                      <div className={`w-9 h-9 rounded-lg bg-gradient-to-br ${gradient} flex items-center justify-center shrink-0 shadow-lg`}>
-                        <GroupIcon className="w-4 h-4 text-white" />
-                      </div>
-                      <h3 className="font-display text-xl text-white uppercase tracking-widest">{group as string}</h3>
-                      <div className="flex-1 h-px bg-white/10" />
-                      <span className="text-xs text-muted-foreground font-bold">{cats.length} {cats.length === 1 ? "category" : "categories"}</span>
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {cats.map((cat) => {
-                        const Icon = categoryIcons[cat.id] || Trophy;
-                        const count = categoryCounts[cat.id] ?? 0;
-                        return (
-                          <Link key={cat.id} href={`/category/${cat.id}`} data-testid={`link-category-${cat.id}`}>
-                            <motion.div
-                              whileHover={{ y: -3 }}
-                              transition={{ duration: 0.2 }}
-                              className="group relative glass glass-sheen rounded-2xl p-5 cursor-pointer transition-colors duration-200 hover:bg-white/[0.08]"
-                            >
-                              <div className="flex items-start gap-4">
-                                <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${gradient} flex items-center justify-center shrink-0 shadow-lg`}>
-                                  <Icon className="w-6 h-6 text-white" />
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                  <h3 className="font-display text-base text-white leading-tight group-hover:text-primary transition-colors">
-                                    {cat.name}
-                                  </h3>
-                                  <p className="text-xs text-muted-foreground mt-1">{count} {count === 1 ? "contender" : "contenders"}</p>
-                                </div>
-                                <ArrowRight className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors mt-1 shrink-0" />
-                              </div>
-                            </motion.div>
-                          </Link>
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              });
-            })()}
           </div>
         </div>
       </section>

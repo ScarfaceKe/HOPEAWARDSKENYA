@@ -4,35 +4,36 @@
 
 @layer base {
   :root {
-    --background: 240 10% 4%;
-    --foreground: 0 0% 98%;
+    /* ── Savanna Sunset theme: deep aubergine base, coral / rose / jade accents ── */
+    --background: 285 32% 6%;
+    --foreground: 40 45% 96%;
 
-    --primary: 38 92% 50%;
-    --primary-foreground: 0 0% 0%;
-    
-    --secondary: 111 100% 49%;
-    --secondary-foreground: 0 0% 0%;
-    
-    --accent: 175 85% 45%;
-    --accent-foreground: 0 0% 0%;
+    --primary: 16 88% 58%;            /* sunset coral */
+    --primary-foreground: 20 40% 8%;
+
+    --secondary: 340 72% 62%;         /* dusk rose */
+    --secondary-foreground: 340 40% 10%;
+
+    --accent: 168 52% 46%;            /* savanna jade */
+    --accent-foreground: 170 60% 8%;
 
     --destructive: 0 100% 50%;
     --destructive-foreground: 0 0% 100%;
 
-    --muted: 240 5% 15%;
-    --muted-foreground: 240 5% 65%;
+    --muted: 285 18% 16%;
+    --muted-foreground: 35 18% 74%;
 
-    --card: 240 10% 6%;
-    --card-foreground: 0 0% 98%;
+    --card: 285 24% 9%;
+    --card-foreground: 40 45% 96%;
 
-    --border: 240 10% 15%;
-    --input: 240 10% 15%;
-    --ring: 38 92% 50%;
+    --border: 285 16% 20%;
+    --input: 285 16% 18%;
+    --ring: 16 88% 58%;
 
-    --radius: 0.75rem;
+    --radius: 1rem;
 
-    --font-display: 'Space Grotesk', sans-serif;
-    --font-body: 'Outfit', sans-serif;
+    --font-display: 'Playfair Display', Georgia, serif;
+    --font-body: 'Plus Jakarta Sans', system-ui, sans-serif;
   }
 
   body {
@@ -42,9 +43,8 @@
 
   h1, h2, h3, h4, h5, h6 {
     font-family: var(--font-display);
-    text-transform: uppercase;
-    letter-spacing: 0.02em;
     font-weight: 700;
+    letter-spacing: -0.015em;
   }
 }
 
@@ -58,24 +58,30 @@
     font-family: var(--font-body);
   }
 
+  /* Legacy "neon" hooks (still used by other pages) — glow removed on purpose.
+     Sunset text now renders as a warm gradient instead of a neon halo. */
   .neon-text-gold {
-    text-shadow: 0 0 10px rgba(217, 161, 12, 0.7), 0 0 20px rgba(217, 161, 12, 0.5), 0 0 30px rgba(217, 161, 12, 0.3);
+    background-image: linear-gradient(100deg, hsl(38 95% 64%), hsl(16 88% 62%), hsl(340 78% 68%));
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
   }
   .neon-text-green {
-    text-shadow: 0 0 10px rgba(57, 255, 20, 0.7), 0 0 20px rgba(57, 255, 20, 0.5);
+    color: hsl(var(--accent));
   }
   .neon-text-teal {
-    text-shadow: 0 0 10px rgba(0, 188, 163, 0.7), 0 0 20px rgba(0, 188, 163, 0.5);
+    color: hsl(var(--accent));
   }
 
   .neon-box-gold {
-    box-shadow: 0 0 15px rgba(217, 161, 12, 0.4), inset 0 0 10px rgba(217, 161, 12, 0.15);
+    box-shadow: 0 14px 34px -16px rgba(240, 100, 66, 0.5);
   }
   .neon-box-green {
-    box-shadow: 0 0 15px rgba(57, 255, 20, 0.4), inset 0 0 10px rgba(57, 255, 20, 0.2);
+    box-shadow: 0 14px 34px -16px rgba(34, 170, 145, 0.45);
   }
   .neon-box-teal {
-    box-shadow: 0 0 15px rgba(0, 188, 163, 0.4), inset 0 0 10px rgba(0, 188, 163, 0.15);
+    box-shadow: 0 14px 34px -16px rgba(34, 170, 145, 0.45);
   }
 
   .bg-grid-pattern {
@@ -178,54 +184,56 @@
 
     /* Red (reject / destructive) */
     /* Glass system: flatten to solid so Mali GPUs never tear */
-    .glass, .glass-strong, .glass-gold, .glass-green {
+    .glass, .glass-strong, .glass-gold, .glass-green, .glass-rose {
       backdrop-filter: none !important;
       -webkit-backdrop-filter: none !important;
-      background: #15151a !important;
+      background: #191424 !important;
     }
-    .glass-gold  { background: #26200f !important; }
-    .glass-green { background: #10250f !important; }
-    .glass-gold  { border-color: #8a6a20 !important; }
-    .glass-green { border-color: #2a6622 !important; }
-    .glass, .glass-strong { border-color: #1f1f1f !important; }
+    .glass-gold  { background: #33191a !important; }
+    .glass-rose  { background: #321826 !important; }
+    .glass-green { background: #12261f !important; }
+    .glass-gold  { border-color: #8a4030 !important; }
+    .glass-rose  { border-color: #8a3a5c !important; }
+    .glass-green { border-color: #1f6a56 !important; }
+    .glass, .glass-strong { border-color: #2a2138 !important; }
     .glass-sheen::before { display: none !important; }
     .aurora-slow { animation: none !important; }
     .btn-shine::after { display: none !important; }
     .bg-red-500\/30 { background-color: #521e20 !important; }
     .bg-red-500\/90 { background-color: #d83f3f !important; }
 
-    /* Green (secondary / approve) */
-    .bg-secondary\/10 { background-color: #10250f !important; }
-    .bg-secondary\/15 { background-color: #11310e !important; }
-    .bg-secondary\/20 { background-color: #123d0e !important; }
-    .bg-secondary\/25 { background-color: #14490d !important; }
-    .bg-secondary\/30 { background-color: #15550c !important; }
-    .bg-secondary\/90 { background-color: #22e202 !important; }
+    /* Rose (secondary) */
+    .bg-secondary\/10 { background-color: #26141e !important; }
+    .bg-secondary\/15 { background-color: #2e1724 !important; }
+    .bg-secondary\/20 { background-color: #361b2b !important; }
+    .bg-secondary\/25 { background-color: #3f2033 !important; }
+    .bg-secondary\/30 { background-color: #48253c !important; }
+    .bg-secondary\/90 { background-color: #dd5c86 !important; }
 
-    /* Teal (accent / move-category) */
-    .bg-accent\/10 { background-color: #0e2123 !important; }
-    .bg-accent\/15 { background-color: #0e2c2c !important; }
-    .bg-accent\/20 { background-color: #0f3535 !important; }
-    .bg-accent\/25 { background-color: #0f403e !important; }
+    /* Jade (accent) */
+    .bg-accent\/10 { background-color: #0e2420 !important; }
+    .bg-accent\/15 { background-color: #102c27 !important; }
+    .bg-accent\/20 { background-color: #12352f !important; }
+    .bg-accent\/25 { background-color: #144038 !important; }
 
     /* Gold (primary) + amber */
-    .bg-primary\/20 { background-color: #3c2b10 !important; }
-    .bg-primary\/90 { background-color: #de900b !important; }
-    .bg-amber-500\/10 { background-color: #251c10 !important; }
+    .bg-primary\/20 { background-color: #3a1f1a !important; }
+    .bg-primary\/90 { background-color: #e0603a !important; }
+    .bg-amber-500\/10 { background-color: #2a1c14 !important; }
 
     /* Solid colored borders (alpha borders tear the same way) */
     .border-red-500\/30 { border-color: #5a2222 !important; }
     .border-red-500\/50 { border-color: #8a3030 !important; }
     .border-red-500\/60 { border-color: #a03636 !important; }
-    .border-secondary\/20 { border-color: #1f4d1a !important; }
-    .border-secondary\/30 { border-color: #2a6622 !important; }
-    .border-secondary\/40 { border-color: #35802b !important; }
-    .border-accent\/30 { border-color: #1a5a55 !important; }
-    .border-accent\/40 { border-color: #206b65 !important; }
+    .border-secondary\/20 { border-color: #5a2a40 !important; }
+    .border-secondary\/30 { border-color: #733650 !important; }
+    .border-secondary\/40 { border-color: #8c4260 !important; }
+    .border-accent\/30 { border-color: #1d5a4c !important; }
+    .border-accent\/40 { border-color: #246b5c !important; }
     .border-amber-500\/20 { border-color: #4a3a1a !important; }
     .border-amber-500\/30 { border-color: #5a4520 !important; }
-    .border-primary\/30 { border-color: #5a4520 !important; }
-    .border-primary\/50 { border-color: #8a6a20 !important; }
+    .border-primary\/30 { border-color: #6b3326 !important; }
+    .border-primary\/50 { border-color: #a04a34 !important; }
   }
 
   /* Honor system "reduce motion" preference — additional safety net */
@@ -245,30 +253,40 @@
     clip-path: polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%);
   }
 
-  /* ── Glassmorphism design system ───────────────────────────── */
+  /* ── Glassmorphism design system (sunset tints) ──────────────── */
   .glass {
-    background: rgba(255, 255, 255, 0.045);
-    border: 1px solid rgba(255, 255, 255, 0.09);
+    background: rgba(255, 248, 240, 0.05);
+    border: 1px solid rgba(255, 248, 240, 0.1);
     backdrop-filter: blur(18px) saturate(140%);
     -webkit-backdrop-filter: blur(18px) saturate(140%);
   }
   .glass-strong {
-    background: rgba(255, 255, 255, 0.07);
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: linear-gradient(150deg, rgba(255, 248, 240, 0.085), rgba(255, 248, 240, 0.035));
+    border: 1px solid rgba(255, 248, 240, 0.14);
     backdrop-filter: blur(26px) saturate(150%);
     -webkit-backdrop-filter: blur(26px) saturate(150%);
   }
   .glass-gold {
-    background: linear-gradient(135deg, rgba(217, 161, 12, 0.13), rgba(217, 161, 12, 0.03));
-    border: 1px solid rgba(217, 161, 12, 0.35);
+    background: linear-gradient(140deg, rgba(240, 108, 72, 0.16), rgba(228, 88, 130, 0.06));
+    border: 1px solid rgba(240, 108, 72, 0.38);
     backdrop-filter: blur(18px) saturate(140%);
     -webkit-backdrop-filter: blur(18px) saturate(140%);
   }
   .glass-green {
-    background: linear-gradient(135deg, rgba(52, 211, 25, 0.12), rgba(52, 211, 25, 0.03));
-    border: 1px solid rgba(52, 211, 25, 0.35);
+    background: linear-gradient(140deg, rgba(38, 178, 152, 0.15), rgba(38, 178, 152, 0.04));
+    border: 1px solid rgba(38, 178, 152, 0.38);
     backdrop-filter: blur(18px) saturate(140%);
     -webkit-backdrop-filter: blur(18px) saturate(140%);
+  }
+  .glass-rose {
+    background: linear-gradient(140deg, rgba(228, 88, 130, 0.16), rgba(228, 88, 130, 0.04));
+    border: 1px solid rgba(228, 88, 130, 0.38);
+    backdrop-filter: blur(18px) saturate(140%);
+    -webkit-backdrop-filter: blur(18px) saturate(140%);
+  }
+  /* Gradient hairline ring used on the hero logo plate */
+  .ring-sunset {
+    background-image: linear-gradient(135deg, rgba(240, 108, 72, 0.75), rgba(228, 88, 130, 0.55) 45%, rgba(38, 178, 152, 0.6));
   }
   /* Sheen strip along the top edge of glass cards */
   .glass-sheen {

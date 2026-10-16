@@ -34,8 +34,8 @@ function FlipBlock({ value, label, color }: { value: number; label: string; colo
     <div className="flex flex-col items-center gap-1.5">
       <div className={`relative w-[68px] h-[76px] sm:w-[84px] sm:h-[92px] rounded-2xl flex items-center justify-center overflow-hidden
         ${isGold
-          ? "bg-gradient-to-b from-amber-950/80 to-black/90 border border-amber-500/30 shadow-[0_0_20px_rgba(217,161,12,0.2),inset_0_1px_0_rgba(255,200,50,0.1)]"
-          : "bg-gradient-to-b from-green-950/80 to-black/90 border border-green-500/30 shadow-[0_0_20px_rgba(34,197,94,0.2),inset_0_1px_0_rgba(100,255,150,0.1)]"
+          ? "bg-gradient-to-b from-orange-950/80 to-black/90 border border-orange-500/30 shadow-[0_0_20px_rgba(217,161,12,0.2),inset_0_1px_0_rgba(255,200,50,0.1)]"
+          : "bg-gradient-to-b from-rose-950/80 to-black/90 border border-rose-500/30 shadow-[0_0_20px_rgba(34,197,94,0.2),inset_0_1px_0_rgba(100,255,150,0.1)]"
         }`}
       >
         <div className="absolute inset-x-0 top-0 h-[48%] bg-white/[0.025] rounded-t-2xl pointer-events-none" />
@@ -48,7 +48,7 @@ function FlipBlock({ value, label, color }: { value: number; label: string; colo
             exit={{ y: 16, opacity: 0 }}
             transition={{ duration: 0.18, ease: "easeOut" }}
             className={`font-display text-3xl sm:text-4xl tabular-nums z-20 relative select-none
-              ${isGold ? "text-amber-300" : "text-green-300"}`}
+              ${isGold ? "text-orange-300" : "text-rose-300"}`}
             data-testid={`countdown-${label.toLowerCase()}`}
           >
             {String(value).padStart(2, "0")}
@@ -56,7 +56,7 @@ function FlipBlock({ value, label, color }: { value: number; label: string; colo
         </AnimatePresence>
       </div>
       <span className={`text-[9px] sm:text-[11px] font-bold tracking-[0.18em] uppercase
-        ${isGold ? "text-amber-500/60" : "text-green-500/60"}`}>
+        ${isGold ? "text-orange-500/60" : "text-rose-500/60"}`}>
         {label}
       </span>
     </div>
@@ -66,8 +66,8 @@ function FlipBlock({ value, label, color }: { value: number; label: string; colo
 function Dot({ color }: { color: "gold" | "green" }) {
   return (
     <div className="flex flex-col gap-[5px] mb-5">
-      <div className={`w-1.5 h-1.5 rounded-full ${color === "gold" ? "bg-amber-500/50" : "bg-green-500/50"}`} />
-      <div className={`w-1.5 h-1.5 rounded-full ${color === "gold" ? "bg-amber-500/50" : "bg-green-500/50"}`} />
+      <div className={`w-1.5 h-1.5 rounded-full ${color === "gold" ? "bg-orange-500/50" : "bg-rose-500/50"}`} />
+      <div className={`w-1.5 h-1.5 rounded-full ${color === "gold" ? "bg-orange-500/50" : "bg-rose-500/50"}`} />
     </div>
   );
 }
@@ -152,7 +152,7 @@ export function Countdown() {
       >
         <div className="flex flex-col items-center gap-1">
           <Trophy className="w-10 h-10 text-primary animate-bounce" />
-          <p className="font-display text-2xl text-primary neon-text-gold">VOTING HAS CLOSED</p>
+          <p className="font-display text-3xl text-foreground">Voting has closed</p>
           <p className="text-muted-foreground text-sm">The votes are in — results being finalised.</p>
         </div>          <div className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-primary/10 border border-primary/30">
           <Trophy className="w-4 h-4 text-primary" />
@@ -186,26 +186,26 @@ export function Countdown() {
             {isPrePhase ? (
               <>
                 <div className="flex items-center gap-2">
-                  <Flame className="w-4 h-4 text-amber-400 animate-pulse" />
-                  <span className="font-display text-[11px] tracking-[0.22em] text-amber-400 uppercase">
+                  <Flame className="w-4 h-4 text-orange-400 animate-pulse" />
+                  <span className="font-display text-[11px] tracking-[0.22em] text-orange-400 uppercase">
                     Nominations Close · Voting Opens In
                   </span>
-                  <Flame className="w-4 h-4 text-amber-400 animate-pulse" />
+                  <Flame className="w-4 h-4 text-orange-400 animate-pulse" />
                 </div>
-                <p className="text-[10px] text-amber-500/50 font-semibold tracking-widest uppercase">
+                <p className="text-[10px] text-orange-500/50 font-semibold tracking-widest uppercase">
                   25th October 2026 · 12:00 AM (Midnight) EAT
                 </p>
               </>
             ) : (
               <>
                 <div className="flex items-center gap-2">
-                  <Zap className="w-4 h-4 text-green-400 animate-pulse" />
-                  <span className="font-display text-[11px] tracking-[0.22em] text-green-400 uppercase">
+                  <Zap className="w-4 h-4 text-rose-400 animate-pulse" />
+                  <span className="font-display text-[11px] tracking-[0.22em] text-rose-400 uppercase">
                     Voting Closes In
                   </span>
-                  <Zap className="w-4 h-4 text-green-400 animate-pulse" />
+                  <Zap className="w-4 h-4 text-rose-400 animate-pulse" />
                 </div>
-                <p className="text-[10px] text-green-500/50 font-semibold tracking-widest uppercase">
+                <p className="text-[10px] text-rose-500/50 font-semibold tracking-widest uppercase">
                   6th December 2026 · 12:00 AM (Midnight) EAT
                 </p>
               </>
@@ -226,14 +226,14 @@ export function Countdown() {
           {/* Voting progress bar — only during open phase */}
           {!isPrePhase && (
             <div className="w-full flex flex-col gap-1.5">
-              <div className="flex justify-between text-[9px] font-bold text-green-500/40 uppercase tracking-widest px-0.5">
+              <div className="flex justify-between text-[9px] font-bold text-rose-500/40 uppercase tracking-widest px-0.5">
                 <span>Voting Started</span>
                 <span>{Math.round(votingProgress)}% of voting window elapsed</span>
                 <span>Closes</span>
               </div>
               <div className="w-full h-1.5 rounded-full bg-white/5 overflow-hidden">
                 <motion.div
-                  className="h-full bg-gradient-to-r from-green-700 via-green-400 to-emerald-300 rounded-full"
+                  className="h-full bg-gradient-to-r from-rose-700 via-rose-400 to-pink-300 rounded-full"
                   initial={{ width: "0%" }}
                   animate={{ width: `${votingProgress}%` }}
                   transition={{ duration: 1.2, ease: "easeOut" }}
@@ -245,7 +245,7 @@ export function Countdown() {
           {/* Journey timeline */}
           <div className="w-full flex flex-col gap-2 pt-1">
             <p className={`text-center text-[9px] font-bold tracking-[0.2em] uppercase
-              ${isPrePhase ? "text-amber-500/40" : "text-green-500/40"}`}>
+              ${isPrePhase ? "text-orange-500/40" : "text-rose-500/40"}`}>
               — Awards Journey —
             </p>
             <Timeline phase={phase} />
@@ -254,13 +254,13 @@ export function Countdown() {
           {/* Awards date */}
           <div className={`flex items-center gap-2 px-4 py-2 rounded-full border
             ${isPrePhase
-              ? "bg-amber-500/5 border-amber-500/15"
-              : "bg-green-500/5 border-green-500/15"}`}
+              ? "bg-orange-500/5 border-orange-500/15"
+              : "bg-rose-500/5 border-rose-500/15"}`}
           >
-            <Trophy className={`w-3.5 h-3.5 ${isPrePhase ? "text-amber-400/60" : "text-green-400/60"}`} />
+            <Trophy className={`w-3.5 h-3.5 ${isPrePhase ? "text-orange-400/60" : "text-rose-400/60"}`} />
             <span className={`text-[11px] font-semibold
-              ${isPrePhase ? "text-amber-400/60" : "text-green-400/60"}`}>
-              Awards Night — <span className={isPrePhase ? "text-amber-300" : "text-green-300"}>{AWARDS_DATE}</span> · Express Way Lounge, Mombasa Road
+              ${isPrePhase ? "text-orange-400/60" : "text-rose-400/60"}`}>
+              Awards Night — <span className={isPrePhase ? "text-orange-300" : "text-rose-300"}>{AWARDS_DATE}</span> · Express Way Lounge, Mombasa Road
             </span>
           </div>
         </motion.div>
