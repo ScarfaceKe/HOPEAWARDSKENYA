@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
-import { VOTING_START, VOTING_END, AWARDS_DATE } from "@shared/dates";
+import { VOTING_START, VOTING_END, VOTING_PUBLIC_END, AWARDS_DATE } from "@shared/dates";
 
-export { VOTING_START, VOTING_END, AWARDS_DATE };
+export { VOTING_START, VOTING_END, VOTING_PUBLIC_END, AWARDS_DATE };
 
 export type VotingPhase = "pre" | "open" | "closed";
 

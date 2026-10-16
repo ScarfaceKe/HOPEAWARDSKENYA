@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Trophy, Flame, Zap, CheckCircle2, Circle, ChevronRight } from "lucide-react";
-import { VOTING_START, VOTING_END, AWARDS_DATE, getVotingPhase } from "@/hooks/use-voting-status";
+import { VOTING_START, VOTING_PUBLIC_END, AWARDS_DATE, getVotingPhase } from "@/hooks/use-voting-status";
 
 function getTimeLeft(target: number) {
   const diff = target - Date.now();
@@ -77,13 +77,13 @@ function Timeline({ phase }: { phase: "pre" | "open" }) {
     ? [
         { label: "Entries Open",     date: "Now → 24 Oct",        done: false,           active: true  },
         { label: "Voting Opens",     date: "25 Oct · Midnight",   done: false,           active: false },
-        { label: "Voting Closes",    date: "6 Dec · 00:15",       done: false,           active: false },
+        { label: "Voting Closes",    date: "6 Dec · Midnight",    done: false,           active: false },
         { label: "Awards Night",     date: "Date TBA",            done: false,           active: false },
       ]
     : [
         { label: "Voting Opens",     date: "25 Oct · Midnight",   done: true,            active: false },
-        { label: "Voting Now Live",  date: "Until 6 Dec · 00:15", done: false,           active: true  },
-        { label: "Voting Closes",    date: "6 Dec · 00:15",       done: false,           active: false },
+        { label: "Voting Now Live",  date: "Until 6 Dec · Midnt", done: false,           active: true  },
+        { label: "Voting Closes",    date: "6 Dec · Midnight",    done: false,           active: false },
         { label: "Awards Night",     date: "Date TBA",            done: false,           active: false },
       ];
 
@@ -131,14 +131,14 @@ function Timeline({ phase }: { phase: "pre" | "open" }) {
 export function Countdown() {
   const [phase, setPhase] = useState(getVotingPhase);
   const [time, setTime] = useState(() =>
-    getTimeLeft(phase === "pre" ? VOTING_START : VOTING_END)
+    getTimeLeft(phase === "pre" ? VOTING_START : VOTING_PUBLIC_END)
   );
 
   useEffect(() => {
     const timer = setInterval(() => {
       const p = getVotingPhase();
       setPhase(p);
-      setTime(getTimeLeft(p === "pre" ? VOTING_START : VOTING_END));
+      setTime(getTimeLeft(p === "pre" ? VOTING_START : VOTING_PUBLIC_END));
     }, 1000);
     return () => clearInterval(timer);
   }, []);
@@ -166,7 +166,7 @@ export function Countdown() {
   }
 
   const isPrePhase = phase === "pre";
-  const votingDuration = VOTING_END - VOTING_START;
+  const votingDuration = VOTING_PUBLIC_END - VOTING_START;
   const elapsed = votingDuration - time.total;
   const votingProgress = Math.min((elapsed / votingDuration) * 100, 100);
 
@@ -206,7 +206,7 @@ export function Countdown() {
                   <Zap className="w-4 h-4 text-green-400 animate-pulse" />
                 </div>
                 <p className="text-[10px] text-green-500/50 font-semibold tracking-widest uppercase">
-                  6th December 2026 · 00:15 EAT
+                  6th December 2026 · 12:00 AM (Midnight) EAT
                 </p>
               </>
             )}
