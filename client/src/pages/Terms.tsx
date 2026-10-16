@@ -291,9 +291,10 @@ export default function Terms() {
         <p>
           We may update these terms mid-season; the current version always lives at{" "}
           <Link href="/terms">hopeawards.co.ke/terms</Link> with its effective date, material changes to paid votes or
-          eligibility are announced first, and changes never apply backwards to a vote already recorded. These terms
-          are governed by the laws of <strong>Kenya</strong> and its courts have jurisdiction — but please raise
-          anything with us first (section 12): almost every dispute we see is a payment to trace or a nominee to move.
+          eligibility are announced first, and changes never apply backwards to a vote already recorded. If any part of
+          these terms is ever found unenforceable, the rest still applies. These terms are governed by the laws of{" "}
+          <strong>Kenya</strong> and its courts have jurisdiction — but please raise anything with us first (section 12):
+          almost every dispute we see is a payment to trace or a nominee to move.
         </p>
       </section>
 
