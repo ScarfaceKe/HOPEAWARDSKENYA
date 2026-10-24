@@ -1,0 +1,63 @@
+# Backup keep-alive for the production instance.
+#
+# The site runs on a Render free instance, which sleeps after ~15 minutes with no
+# traffic. A sleeping instance takes ~50 seconds to wake, and a MegaPay payment
+# callback that arrives while it is asleep can time out — the fan is charged and
+# no vote is recorded.
+#
+# The primary guard is an external 1-minute cron (cron-job.org) pointed at
+# https://www.hopeawards.co.ke/. This workflow is the fallback for when that
+# service has an outage: one request every 5 minutes is still three times more
+# frequent than Render's 15-minute idle threshold, and it costs almost nothing
+# to run.
+#
+# IMPORTANT: this pings `/`, not `/api/health`. `/api/health` runs a database
+# query, and pinging that on a schedule would keep a free Neon database awake
+# around the clock and exhaust its monthly compute allowance. `/` is served from
+# disk and touches no database.
+name: Keep the site awake
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  # Run by hand from the Actions tab; also re-registers the schedule if GitHub
+  # pauses it after 60 days of repository inactivity.
+  workflow_dispatch:
+
+concurrency:
+  group: keep-alive
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ping the site
+        run: |
+          set -uo pipefail
+          url="https://www.hopeawards.co.ke/"
+          resp=$(mktemp)
+          start=$(date +%s)
+          # The first request after a sleep can take ~60s to answer.
+          code=$(curl -sS -o "$resp" -w '%{http_code}' \
+            --max-time 90 --retry 2 --retry-delay 5 --retry-all-errors \
+            "$url" 2>/dev/null || true)
+          code=${code:-000}
+          took=$(( $(date +%s) - start ))
+
+          echo "GET $url -> HTTP $code in ${took}s"
+          head -c 200 "$resp" || true
+          echo
+
+          # 200 plus the real app shell: an error page or a proxy 502 must fail,
+          # because a failed run is what sends the alert email.
+          if [ "$code" = "200" ] && grep -q 'id="root"' "$resp"; then
+            echo "ok"
+          else
+            echo "FAILED"
+            exit 1
+          fi

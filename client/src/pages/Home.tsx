@@ -182,7 +182,9 @@ export default function Home() {
   const { phase } = useVotingStatus();
   const [, navigate] = useLocation();
   const [nomineeQuery, setNomineeQuery] = useState("");
-  const { data: capacityData } = useQuery<Array<{ id: string; name: string; group: string; approved: number }>>({
+  const { data: capacityData, isError: capacityFailed } = useQuery<
+    Array<{ id: string; name: string; group: string; approved: number }>
+  >({
     queryKey: ["/api/categories/capacity"],
     staleTime: 60000,
   });
@@ -445,7 +447,11 @@ export default function Home() {
             </div>
             <div className="flex flex-col items-stretch sm:items-end gap-3">
               <p className="text-muted-foreground text-sm font-semibold">
-                {!capacityData
+                {/* A failed fetch must not sit on "Loading…" forever — that is
+                    what a static host with no /api shows every visitor. */}
+                {capacityFailed
+                  ? "Categories are temporarily unavailable — refresh to try again"
+                  : !capacityData
                   ? "Loading categories…"
                   : activeCategories.length > 0
                   ? `${activeCategories.length} live ${activeCategories.length === 1 ? "category" : "categories"}`

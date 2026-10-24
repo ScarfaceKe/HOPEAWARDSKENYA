@@ -880,6 +880,33 @@ export async function registerRoutes(
     }
   });
 
+  // ── Liveness / readiness ────────────────────────────────────────────────
+  // Uptime monitors and Render's health check need a URL that tells the truth.
+  // The SPA catch-all answers *every* unknown path with the app shell, so
+  // without this route `/api/health` returns 200 HTML even when Postgres is
+  // gone. 200 = app + database reachable, 503 = degraded. Deliberately exposes
+  // no timing information about the voting window.
+  app.get("/api/health", noCache, async (_req, res) => {
+    const startedAt = Date.now();
+    try {
+      const categories = await storage.listCategories();
+      res.status(200).json({
+        status: "ok",
+        database: "ok",
+        categories: categories.length,
+        dbLatencyMs: Date.now() - startedAt,
+        uptimeSeconds: Math.round(process.uptime()),
+      });
+    } catch (err) {
+      console.error("[health] Database check failed:", err);
+      res.status(503).json({
+        status: "degraded",
+        database: "unreachable",
+        uptimeSeconds: Math.round(process.uptime()),
+      });
+    }
+  });
+
   app.get("/api/payment-config", (_req, res) => {
     return res.json({ provider: "megapay" });
   });

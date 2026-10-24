@@ -265,6 +265,18 @@ test("SITEMAP: lists the new pages and never leaks the enforced close", async ()
   assert.equal(xml.includes("00:15"), false);
 });
 
+test("HEALTH: a dead database is reported as degraded, not as a healthy page", async () => {
+  // The SPA catch-all answers every unknown path with the app shell, so a
+  // health check that merely returned 200 would lie. This suite points
+  // DATABASE_URL at a closed port on purpose, which is exactly the failure the
+  // endpoint has to surface.
+  const res = await get("/api/health");
+  assert.equal(res.status, 503);
+  const body = (await res.json()) as { status: string; database: string };
+  assert.equal(body.status, "degraded");
+  assert.equal(body.database, "unreachable");
+});
+
 test("SECURITY: alert and audit endpoints require an admin session", async () => {
   assert.equal((await get("/api/admin/alerts")).status, 401);
   assert.equal((await get("/api/admin/audit")).status, 401);
