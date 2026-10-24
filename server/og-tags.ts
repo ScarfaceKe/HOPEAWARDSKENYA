@@ -123,7 +123,7 @@ export async function getOgOverrideForUrl(url: string): Promise<OgOverride | nul
       if (phase === "open") {
         return {
           title: "🗳️ Voting is LIVE — Hope Awards Kenya 2026 (3rd Edition)",
-          description: "Voting is NOW OPEN at Hope Awards Kenya 2026! Pick your category, back your favourite artist, DJ or MC. 1 Vote = 10 KES via M-Pesa. Awards night date to be announced.",
+          description: "Voting is NOW OPEN at Hope Awards Kenya 2026! Pick your category, back your favourite artist, DJ or MC. 1 Vote = 10 KES via M-Pesa. Awards night 12 December 2026.",
           image,
           imageType: imageMimeFromUrl(image),
           imageWidth: 1200,
@@ -134,7 +134,7 @@ export async function getOgOverrideForUrl(url: string): Promise<OgOverride | nul
       }
       return {
         title: "Your Name on the Trophy? Nominate Now - Hope Awards Kenya 2026 (3rd Edition)",
-        description: "The 3rd Edition of Hope Awards Kenya is here. Lights. Cameras. Your name on the list. Put yourself (or a Kenyan creative you believe in) forward across 78 categories. Free to enter. Awards night date to be announced.",
+        description: "The 3rd Edition of Hope Awards Kenya is here. Lights. Cameras. Your name on the list. Put yourself (or a Kenyan creative you believe in) forward across 78 categories. Free to enter. Awards night 12 December 2026.",
         image,
         imageType: imageMimeFromUrl(image),
         imageWidth: 1200,

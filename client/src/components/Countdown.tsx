@@ -78,13 +78,13 @@ function Timeline({ phase }: { phase: "pre" | "open" }) {
         { label: "Entries Open",     date: "Now → 24 Oct",        done: false,           active: true  },
         { label: "Voting Opens",     date: "25 Oct · Midnight",   done: false,           active: false },
         { label: "Voting Closes",    date: "6 Dec · Midnight",    done: false,           active: false },
-        { label: "Awards Night",     date: "Date TBA",            done: false,           active: false },
+        { label: "Awards Night",     date: "12 Dec 2026",         done: false,           active: false },
       ]
     : [
         { label: "Voting Opens",     date: "25 Oct · Midnight",   done: true,            active: false },
         { label: "Voting Now Live",  date: "Until 6 Dec · Midnt", done: false,           active: true  },
         { label: "Voting Closes",    date: "6 Dec · Midnight",    done: false,           active: false },
-        { label: "Awards Night",     date: "Date TBA",            done: false,           active: false },
+        { label: "Awards Night",     date: "12 Dec 2026",         done: false,           active: false },
       ];
 
   return (
