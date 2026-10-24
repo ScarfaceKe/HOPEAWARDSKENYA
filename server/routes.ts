@@ -15,6 +15,7 @@ import { z } from "zod";
 import crypto from "crypto";
 import { recordAlert, recordAlertThrottled, getRecentAlerts } from "./alerts";
 import { parseVoteOrder, voteVelocity, maskPhone, normalizeVotePhone } from "./vote-rules";
+import { classifySettlement } from "./payment-proof";
 import { issueCsrfToken, requireCsrf } from "./csrf";
 import { verifyTotp, twoFactorEnabled, enrollmentSecret, otpauthUri } from "./totp";
 
@@ -926,6 +927,7 @@ export async function registerRoutes(
       votesAdded: pending.votesAdded,
       amountKes: pending.amountKes,
       paystackReference: pending.reference,
+      gatewayRequestId: pending.gatewayRequestId ?? null,
       voterPhone: pending.voterPhone ?? null,
     });
     await storage.deletePendingPayment(pending.reference).catch(() => {});
@@ -954,12 +956,16 @@ export async function registerRoutes(
     amount: number | null;
   };
 
-  async function fetchGatewayStatus(pending: PendingPayment): Promise<GatewayStatus | null> {
+  async function fetchGatewayStatus(order: {
+    reference: string;
+    gatewayRequestId: string | null;
+    amountKes: number;
+  }): Promise<GatewayStatus | null> {
     const apiKey = process.env.MEGAPAY_API_KEY;
     const email = process.env.MEGAPAY_EMAIL || "";
-    if (!apiKey || !email || !pending.gatewayRequestId) return null;
+    if (!apiKey || !email || !order.gatewayRequestId) return null;
 
-    const cached = gatewayStatusCache.get(pending.reference);
+    const cached = gatewayStatusCache.get(order.reference);
     if (cached && Date.now() - cached.at < 4000) return cached.value;
 
     try {
@@ -969,7 +975,7 @@ export async function registerRoutes(
         body: JSON.stringify({
           api_key: apiKey,
           email,
-          transaction_request_id: pending.gatewayRequestId,
+          transaction_request_id: order.gatewayRequestId,
         }),
       });
       const data: any = await response.json().catch(() => ({}));
@@ -979,18 +985,16 @@ export async function registerRoutes(
       const amountRaw = Number(data.TransactionAmount ?? data.transaction_amount ?? data.Amount);
       const amount = Number.isFinite(amountRaw) && amountRaw > 0 ? amountRaw : null;
 
-      // MegaPay answers an unpaid transaction with `TransactionReceipt: "N/A"`,
-      // so a receipt only counts when it is a real M-Pesa code.
-      const receipt = String(data.TransactionReceipt ?? data.transaction_receipt ?? "").trim();
-      const hasReceipt = !!receipt && !/^(n\/?a|none|null|-|0)$/i.test(receipt);
-
-      const paid = hasReceipt || statusText === "completed" || (statusText === "success" && code === "0");
-      const failed = /cancel|fail|timeout|insufficient|rejected/.test(statusText) || code === "1032";
+      // One rule for both the callback and this lookup: only a real receipt or a
+      // completed status means the money settled.
+      const settlement = classifySettlement(data);
+      const paid = settlement === "paid";
+      const failed = settlement === "failed";
 
       const value: GatewayStatus = {
         paid,
-        failed: !paid && failed,
-        amountMismatch: paid && amount !== null && amount !== pending.amountKes,
+        failed,
+        amountMismatch: paid && amount !== null && amount !== order.amountKes,
         reason: /cancel/.test(statusText)
           ? "The M-Pesa request was cancelled on your phone — you have not been charged."
           : failed
@@ -1001,10 +1005,10 @@ export async function registerRoutes(
 
       // Keep the map from growing for the life of the process.
       if (gatewayStatusCache.size > 500) gatewayStatusCache.clear();
-      gatewayStatusCache.set(pending.reference, { at: Date.now(), value });
+      gatewayStatusCache.set(order.reference, { at: Date.now(), value });
       return value;
     } catch (err: any) {
-      console.error(`[MEGAPAY STATUS] Lookup failed for ref ${pending.reference}:`, err?.message || err);
+      console.error(`[MEGAPAY STATUS] Lookup failed for ref ${order.reference}:`, err?.message || err);
       return null;
     }
   }
@@ -1256,7 +1260,11 @@ export async function registerRoutes(
         return res.status(404).json({ status: "unknown", message: "Payment not found" });
       }
 
-      const gateway = await fetchGatewayStatus(pending);
+      const gateway = await fetchGatewayStatus({
+        reference: pending.reference,
+        gatewayRequestId: pending.gatewayRequestId ?? null,
+        amountKes: pending.amountKes,
+      });
 
       if (gateway?.paid) {
         if (gateway.amountMismatch) {
@@ -1423,13 +1431,61 @@ export async function registerRoutes(
       return res.status(200).json({ status: "test_ok" });
     }
 
-    if (status === "success" || result_code === "0" || result_code === 0 || result_code === "0000") {
-      try {
-        const existing = await storage.getVoteByReference(reference);
-        if (existing) {
-          return res.status(200).json({ status: "already_recorded" });
-        }
+    // One settlement rule for both routes: `ResultCode: 0` means the STK request
+    // was accepted, not that the fan paid. Only a real receipt or a completed
+    // status earns a vote.
+    const settlement = classifySettlement(req.body);
 
+    const alreadyCredited = await storage.getVoteByReference(reference);
+    if (alreadyCredited) {
+      // A payment that settles and is then reversed must lose its vote: the fan
+      // saw "vote added", and Safaricom took the money back a minute later.
+      if (settlement === "failed") {
+        const voided = await storage.voidVoteByReference(reference).catch((err) => {
+          console.error(`[MEGAPAY CALLBACK] Could not void reversed vote ${reference}:`, err);
+          return undefined;
+        });
+        if (voided) {
+          apiCache.clear();
+          recordAlert(
+            "critical",
+            "payment.reversed_after_credit",
+            "MegaPay reported a payment as failed after its vote was recorded — the vote was removed",
+            {
+              reference,
+              artistId: voided.artistId,
+              votes: voided.votesAdded,
+              amountKes: voided.amountKes,
+              ip: callbackIp,
+            },
+          );
+          console.log(`[MEGAPAY CALLBACK] Vote voided after reversal: ref=${reference}, votes=${voided.votesAdded}`);
+        }
+        return res.status(200).json({ status: voided ? "reversed" : "already_recorded" });
+      }
+      return res.status(200).json({ status: "already_recorded" });
+    }
+
+    if (settlement === "failed") {
+      console.log(`[MEGAPAY CALLBACK] Payment did not settle: ref=${reference}, desc=${result_desc}`);
+      recordAlertThrottled(
+        "warning",
+        "payment.callback_failed",
+        "MegaPay reported a payment that did not go through — no vote recorded",
+        { reference, ip: callbackIp },
+      );
+      return res.status(200).json({ status: "failed" });
+    }
+
+    if (settlement === "pending") {
+      // "Success. Request accepted for processing" is not payment. The status
+      // route confirms with MegaPay and credits when the money actually lands.
+      console.log(`[MEGAPAY CALLBACK] Accepted but not settled: ref=${reference} — awaiting confirmation`);
+      return res.status(200).json({ status: "awaiting_settlement" });
+    }
+
+    if (settlement === "paid") {
+      try {
         // The pending order is authoritative for artist, votes and amount —
         // never the reference string or the callback body.
         const pending = await storage.getPendingPayment(reference);
@@ -1442,8 +1498,6 @@ export async function registerRoutes(
           );
           return res.status(200).json({ status: "no_pending" });
         }
-
-        const artistId = pending.artistId;
 
         // If MegaPay echoes an amount, it must match what we charged.
         const claimedAmount = Number(
@@ -1776,6 +1830,55 @@ export async function registerRoutes(
     res.json({ status: "deleted" });
   });
 
+  /** The last two weeks of credited votes, so a reversal can be undone by hand. */
+  app.get("/api/admin/recent-votes", requireAdmin, noCache, async (_req, res) => {
+    const recent = await storage.getVotesSince(14 * 24 * 60 * 60 * 1000);
+    const artistsById = new Map((await storage.getArtists()).map((a) => [a.id, a]));
+    const rows = recent
+      .slice()
+      .sort((a, b) => new Date(b.createdAt!).getTime() - new Date(a.createdAt!).getTime())
+      .slice(0, 40)
+      .map((vote) => ({
+        reference: vote.paystackReference,
+        artistId: vote.artistId,
+        artistName: artistsById.get(vote.artistId)?.name ?? `Artist #${vote.artistId}`,
+        category: artistsById.get(vote.artistId)?.category ?? "",
+        votesAdded: vote.votesAdded,
+        amountKes: vote.amountKes,
+        createdAt: vote.createdAt,
+      }));
+    res.json(rows);
+  });
+
+  /**
+   * Takes back a vote whose payment did not survive (Safaricom reversal). Only
+   * works on a real credited vote, so it can never invent or shave arbitrary
+   * numbers — it deletes the ledger row and gives the votes back.
+   */
+  app.post("/api/admin/votes/:reference/void", requireAdmin, async (req, res) => {
+    const reference = String(req.params.reference);
+    const voided = await storage.voidVoteByReference(reference);
+    if (!voided) {
+      return res.status(404).json({ message: "No recorded vote for that reference" });
+    }
+    apiCache.clear();
+    audit(
+      req,
+      "void_vote",
+      "vote",
+      reference,
+      `Removed ${voided.votesAdded} vote(s) from artist #${voided.artistId} after a reversed payment`,
+    );
+    recordAlert(
+      "warning",
+      "admin.void_vote",
+      "An admin removed a vote credited to a payment that was reversed",
+      { reference, artistId: voided.artistId, votes: voided.votesAdded, ip: requestIp(req) },
+    );
+    console.log(`[ADMIN-VOID] ref=${reference}, artist=${voided.artistId}, votes=${voided.votesAdded}`);
+    res.json({ status: "voided", vote: voided });
+  });
+
   // ─── Background recovery: catch abandoned payments ────────────────────────
   // Runs 2 minutes after startup, then every 5 minutes.
   // For every pending_payment older than 5 minutes, logs for manual review —
@@ -1797,7 +1900,11 @@ export async function registerRoutes(
 
           // A fan who paid and closed the tab must still get their votes: ask the
           // gateway directly rather than waiting for a callback that was lost.
-          const gateway = await fetchGatewayStatus(p);
+          const gateway = await fetchGatewayStatus({
+            reference: p.reference,
+            gatewayRequestId: p.gatewayRequestId ?? null,
+            amountKes: p.amountKes,
+          });
           if (gateway?.paid && !gateway.amountMismatch && Date.now() <= VOTING_END) {
             const credited = await creditPendingOrder(p, "background-reconcile");
             console.log(
@@ -1818,9 +1925,54 @@ export async function registerRoutes(
     }
   }
 
+  // ─── Background: undo votes whose payments were reversed ─────────────────
+  // A payment can settle, credit a vote, and then be reversed by Safaricom a
+  // minute later (which is exactly what a screenshot of "vote added" followed by
+  // an M-Pesa reversal looks like). Re-check recently credited votes against the
+  // gateway and take the vote back if the money did not stay.
+  const reverifiedReferences = new Set<string>();
+  async function reconcileRecentVotes() {
+    const apiKey = process.env.MEGAPAY_API_KEY;
+    if (!apiKey) return;
+    try {
+      const recent = await storage.getVotesSince(60 * 60 * 1000);
+      for (const vote of recent) {
+        if (!vote.gatewayRequestId || reverifiedReferences.has(vote.paystackReference)) continue;
+        const status = await fetchGatewayStatus({
+          reference: vote.paystackReference,
+          gatewayRequestId: vote.gatewayRequestId,
+          amountKes: vote.amountKes,
+        });
+        // Only stop checking once the gateway has given a definite answer.
+        if (!status) continue;
+        if (status.failed) {
+          reverifiedReferences.add(vote.paystackReference);
+          const voided = await storage.voidVoteByReference(vote.paystackReference).catch(() => undefined);
+          if (voided) {
+            apiCache.clear();
+            recordAlert(
+              "critical",
+              "payment.reversed_after_credit",
+              "A vote was removed because MegaPay reports its payment was reversed",
+              { reference: vote.paystackReference, artistId: vote.artistId, votes: vote.votesAdded, amountKes: vote.amountKes },
+            );
+            console.log(`[RECONCILE] Reversed payment — vote voided: ref=${vote.paystackReference}, votes=${vote.votesAdded}`);
+          }
+        } else if (status.paid) {
+          reverifiedReferences.add(vote.paystackReference);
+        }
+      }
+      if (reverifiedReferences.size > 5000) reverifiedReferences.clear();
+    } catch (err) {
+      console.error("[RECONCILE] Recent-vote reconciliation failed:", err);
+    }
+  }
+
   setTimeout(() => {
     recoverPendingPayments();
     setInterval(recoverPendingPayments, 5 * 60 * 1000).unref();
+    reconcileRecentVotes();
+    setInterval(reconcileRecentVotes, 3 * 60 * 1000).unref();
   }, 2 * 60 * 1000).unref();
 
   return httpServer;

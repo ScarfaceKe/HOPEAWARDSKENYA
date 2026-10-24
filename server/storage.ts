@@ -19,7 +19,7 @@ import {
   type PendingPayment,
   CATEGORY_CAP,
 } from "@shared/schema";
-import { eq, sql, lt, inArray, desc, asc } from "drizzle-orm";
+import { eq, sql, lt, gte, inArray, desc, asc } from "drizzle-orm";
 import { VOTING_START, VOTING_END } from "@shared/dates";
 
 // Re-exported so existing server imports (`import { CATEGORY_CAP } from "./storage"`)
@@ -43,6 +43,9 @@ export interface IStorage {
   deleteArtist(id: number): Promise<void>;
   createVote(vote: InsertVote): Promise<VoteResponse>;
   getVoteByReference(ref: string): Promise<VoteResponse | undefined>;
+  getVotesSince(withinMs: number): Promise<VoteResponse[]>;
+  /** Removes a vote whose payment was reversed, and gives the votes back. */
+  voidVoteByReference(ref: string): Promise<VoteResponse | undefined>;
   getVotesByPhone(phone: string): Promise<VoteResponse[]>;
   createRequest(request: InsertRequest, status?: string): Promise<NRequest>;
   getRequests(status?: string): Promise<NRequest[]>;
@@ -180,6 +183,26 @@ export class DatabaseStorage implements IStorage {
   async getVoteByReference(ref: string): Promise<VoteResponse | undefined> {
     const [vote] = await db.select().from(votes).where(eq(votes.paystackReference, ref));
     return vote;
+  }
+
+  async getVotesSince(withinMs: number): Promise<VoteResponse[]> {
+    const cutoff = new Date(Date.now() - withinMs);
+    return await db.select().from(votes).where(gte(votes.createdAt, cutoff));
+  }
+
+  async voidVoteByReference(ref: string): Promise<VoteResponse | undefined> {
+    return await db.transaction(async (tx) => {
+      const [vote] = await tx.select().from(votes).where(eq(votes.paystackReference, ref));
+      if (!vote) return undefined;
+      await tx.delete(votes).where(eq(votes.id, vote.id));
+      // GREATEST keeps the nominee's tally from going negative if the vote was
+      // already the only one and someone else's count moved underneath us.
+      await tx
+        .update(artists)
+        .set({ totalVotes: sql`GREATEST(${artists.totalVotes} - ${vote.votesAdded}, 0)` })
+        .where(eq(artists.id, vote.artistId));
+      return vote;
+    });
   }
 
   async createRequest(insertRequest: InsertRequest, status: string = "pending"): Promise<NRequest> {

@@ -469,6 +469,25 @@ export default function Admin() {
     onError: (err: any) => toast({ title: "Error", description: err?.message, variant: "destructive" }),
   });
 
+  // Recent credited votes: the safety net for a payment Safaricom reversed
+  // after the fan already saw "vote added".
+  const { data: recentVotes = [] } = useQuery<any[]>({
+    queryKey: ["/api/admin/recent-votes"],
+    enabled: isAuthed && activeTab === "votes",
+    refetchInterval: 60_000,
+  });
+
+  const voidVoteMutation = useMutation({
+    mutationFn: (reference: string) => apiRequest("POST", `/api/admin/votes/${encodeURIComponent(reference)}/void`, {}),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/artists"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/recent-votes"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/stats"] });
+      toast({ title: "VOTE REMOVED", description: "The reversed payment's vote was taken off the tally." });
+    },
+    onError: (err: any) => toast({ title: "Could not void", description: err?.message || "Try again.", variant: "destructive" }),
+  });
+
   const filteredArtists = allArtists.filter((a) => {
     if (deleteCategory && a.category !== deleteCategory) return false;
     if (deleteSearch) {
@@ -1906,6 +1925,52 @@ export default function Admin() {
                 </div>
               </div>
             )}
+
+            {/* Recent paid votes — undo a reversed payment */}
+            <div className="bg-card border border-white/10 rounded-2xl p-6">
+              <div className="flex items-center gap-2 mb-2">
+                <Activity className="w-5 h-5 text-secondary" />
+                <h3 className="font-display text-lg text-white">RECENT PAID VOTES</h3>
+              </div>
+              <p className="text-xs text-muted-foreground mb-4">
+                Every vote credited in the last 14 days. If Safaricom reversed a payment after the fan saw
+                “vote added”, remove that vote here — it deletes the ledger row and gives the votes back.
+              </p>
+              {recentVotes.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No paid votes recorded yet.</p>
+              ) : (
+                <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
+                  {recentVotes.slice(0, 15).map((v: any) => (
+                    <div
+                      key={v.reference}
+                      className="bg-black/30 border border-white/5 rounded-xl px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-2"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-white font-semibold truncate">{v.artistName}</p>
+                        <p className="text-[11px] text-primary/70 truncate">{categoryName(v.category)}</p>
+                        <p className="text-[11px] text-muted-foreground">
+                          {v.votesAdded} vote{v.votesAdded === 1 ? "" : "s"} · KES {v.amountKes} ·{" "}
+                          {new Date(v.createdAt).toLocaleString("en-KE", { timeZone: "Africa/Nairobi" })}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground/50 font-mono truncate">{v.reference}</p>
+                      </div>
+                      <button
+                        onClick={() => {
+                          if (window.confirm(`Remove ${v.votesAdded} vote(s) for ${v.artistName}? Only do this if the payment was reversed or refunded.`)) {
+                            voidVoteMutation.mutate(v.reference);
+                          }
+                        }}
+                        disabled={voidVoteMutation.isPending}
+                        data-testid={`button-void-${v.reference}`}
+                        className="shrink-0 px-4 py-2 bg-red-900/50 border border-red-500/30 text-red-300 rounded-lg text-xs font-bold hover:bg-red-800/60 transition-all disabled:opacity-50"
+                      >
+                        VOID VOTE
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </motion.div>
         )}
 

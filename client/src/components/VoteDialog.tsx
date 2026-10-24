@@ -41,6 +41,36 @@ function fireVoteConfetti() {
   }, 500);
 }
 
+function CountUp({ to, duration = 1100 }: { to: number; duration?: number }) {
+  const [value, setValue] = useState(0);
+  useEffect(() => {
+    if (to <= 0) {
+      setValue(0);
+      return;
+    }
+    let frame = 0;
+    const start = performance.now();
+    const tick = (now: number) => {
+      const progress = Math.min(1, (now - start) / duration);
+      // Ease-out so the number rushes in, then settles.
+      setValue(Math.round(to * (1 - Math.pow(1 - progress, 3))));
+      if (progress < 1) frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [to, duration]);
+  return <>{value.toLocaleString()}</>;
+}
+
+const SPARKS = [
+  { left: "12%", top: "18%", delay: 0.1, size: 10, color: "text-primary" },
+  { left: "82%", top: "14%", delay: 0.35, size: 8, color: "text-accent" },
+  { left: "20%", top: "62%", delay: 0.6, size: 7, color: "text-secondary" },
+  { left: "76%", top: "58%", delay: 0.2, size: 11, color: "text-primary" },
+  { left: "50%", top: "8%", delay: 0.5, size: 7, color: "text-white" },
+  { left: "88%", top: "38%", delay: 0.75, size: 6, color: "text-accent" },
+];
+
 export function VoteDialog({ artistId, artistName, categoryName, isOpen, onClose, onVoteSuccess }: VoteDialogProps) {
   const [votes, setVotes] = useState<number>(2);
   const [customVotes, setCustomVotes] = useState<string>("");
@@ -192,6 +222,21 @@ export function VoteDialog({ artistId, artistName, categoryName, isOpen, onClose
               <div className="absolute -top-10 -left-10 w-40 h-40 bg-primary/20 rounded-full blur-3xl pointer-events-none" />
               <div className="absolute -bottom-10 -right-10 w-40 h-40 bg-secondary/20 rounded-full blur-3xl pointer-events-none" />
 
+              {/* Twinkles that drift in as the vote lands. */}
+              {SPARKS.map((spark, i) => (
+                <motion.span
+                  key={i}
+                  aria-hidden="true"
+                  className={`absolute pointer-events-none ${spark.color}`}
+                  style={{ left: spark.left, top: spark.top }}
+                  initial={{ opacity: 0, scale: 0, y: 8 }}
+                  animate={{ opacity: [0, 1, 0.2], scale: [0, 1.15, 0.85], y: [8, -6, -14] }}
+                  transition={{ delay: spark.delay, duration: 2.4, repeat: Infinity, repeatDelay: 0.4 }}
+                >
+                  <Sparkles style={{ width: spark.size, height: spark.size }} />
+                </motion.span>
+              ))}
+
               <motion.div
                 initial={{ scale: 0, rotate: -180 }}
                 animate={{ scale: 1, rotate: 0 }}
@@ -207,37 +252,61 @@ export function VoteDialog({ artistId, artistName, categoryName, isOpen, onClose
                 animate={{ y: 0, opacity: 1 }}
                 transition={{ delay: 0.4 }}
               >
-                <p className="text-xs font-bold tracking-[0.3em] text-primary uppercase mb-3">
-                  Thank You For Voting!
+                <p className="text-xs font-bold tracking-[0.3em] text-primary uppercase mb-2">
+                  Thank you for voting
                 </p>
-                <h2 className="font-display text-2xl sm:text-3xl text-white mb-2 leading-tight">
-                  CONGRATULATIONS
+                <h2 className="font-display text-3xl sm:text-4xl text-white mb-1 leading-tight tracking-wide">
+                  VOTE LANDED
                 </h2>
-                <p className="text-white text-base mb-2">
-                  Thank you for voting for{" "}
-                  <span className="text-primary font-bold">{artistName}</span>
+                <p className="text-muted-foreground text-sm mb-5">
+                  You just backed
                 </p>
-                <p className="text-muted-foreground text-sm mb-1">
-                  as the
+                <p className="text-primary font-display text-2xl sm:text-3xl leading-tight mb-2 break-words">
+                  {artistName}
                 </p>
-                <p className="text-secondary font-display font-bold text-lg tracking-wide uppercase mb-1">
+                <p className="text-secondary text-[11px] font-bold tracking-[0.18em] uppercase mb-6 leading-snug">
                   {categoryName || "Artist"}
                 </p>
-                <p className="text-muted-foreground text-sm mb-6">
-                  of the year 2026
-                </p>
 
-                <div className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-full border bg-emerald-500/15 border-emerald-500/40 text-emerald-300 mb-3">
-                  <span className="text-xs sm:text-sm font-bold tracking-wider uppercase">
-                    ✓ {confirmed?.votesAdded ?? votes} vote{(confirmed?.votesAdded ?? votes) === 1 ? "" : "s"} added successfully
-                  </span>
+                <div className="grid grid-cols-2 gap-3 mb-4">
+                  <motion.div
+                    initial={{ opacity: 0, y: 14, scale: 0.92 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    transition={{ delay: 0.5, type: "spring", bounce: 0.4 }}
+                    className="rounded-2xl border border-primary/30 bg-primary/10 px-3 py-4"
+                  >
+                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-primary mb-1">
+                      Your vote{(confirmed?.votesAdded ?? votes) === 1 ? "" : "s"}
+                    </p>
+                    <p className="font-display text-3xl text-white leading-none" data-testid="votes-added">
+                      +<CountUp to={confirmed?.votesAdded ?? votes} />
+                    </p>
+                  </motion.div>
+                  <motion.div
+                    initial={{ opacity: 0, y: 14, scale: 0.92 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    transition={{ delay: 0.65, type: "spring", bounce: 0.4 }}
+                    className="rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-4"
+                  >
+                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground mb-1">
+                      New total
+                    </p>
+                    <p className="font-display text-3xl text-accent leading-none" data-testid="new-total">
+                      <CountUp to={confirmed?.totalVotes ?? 0} />
+                    </p>
+                  </motion.div>
                 </div>
-                {confirmed && confirmed.totalVotes > 0 && (
-                  <p className="text-xs text-muted-foreground mb-6">
-                    Your vote is counted — {artistName} now has{" "}
-                    <span className="text-white font-bold">{confirmed.totalVotes.toLocaleString()}</span> votes.
-                  </p>
-                )}
+
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: 0.8 }}
+                  className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-full border bg-emerald-500/15 border-emerald-500/40 text-emerald-300 mb-6"
+                >
+                  <span className="text-xs sm:text-sm font-bold tracking-wider uppercase">
+                    ✓ On the live tally
+                  </span>
+                </motion.div>
 
                 <button
                   onClick={onClose}

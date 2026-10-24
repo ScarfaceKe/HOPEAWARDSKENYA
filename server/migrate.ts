@@ -147,6 +147,9 @@ export async function runMigrations() {
       ALTER TABLE votes ADD COLUMN IF NOT EXISTS voter_phone TEXT;
     `);
     await client.query(`
+      ALTER TABLE votes ADD COLUMN IF NOT EXISTS gateway_request_id TEXT;
+    `);
+    await client.query(`
       CREATE INDEX IF NOT EXISTS votes_artist_id_idx
         ON votes (artist_id);
     `);

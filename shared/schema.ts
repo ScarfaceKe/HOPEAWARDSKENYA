@@ -158,6 +158,11 @@ export const votes = pgTable("votes", {
   amountKes: integer("amount_kes").notNull(),
   votesAdded: integer("votes_added").notNull(),
   paystackReference: text("paystack_reference").notNull(),
+  /**
+   * MegaPay's transaction id, kept after the vote is credited so a later
+   * reversal can be checked against `/backend/v1/transactionstatus`.
+   */
+  gatewayRequestId: text("gateway_request_id"),
   voterPhone: text("voter_phone"),
   createdAt: timestamp("created_at").defaultNow(),
 });
