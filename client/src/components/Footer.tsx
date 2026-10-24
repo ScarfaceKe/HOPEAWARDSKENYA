@@ -114,9 +114,18 @@ export function Footer() {
               )}
               {votingOpen && (
                 <li>
-                  <Link href="/" className="group flex items-center gap-2 text-sm text-muted-foreground hover:text-secondary transition-colors cursor-pointer" data-testid="link-footer-vote">
+                  <Link href="/discover" className="group flex items-center gap-2 text-sm text-muted-foreground hover:text-secondary transition-colors cursor-pointer" data-testid="link-footer-vote">
                     <Vote className="w-4 h-4 text-secondary/70 group-hover:text-secondary transition-colors" />
                     Vote Now
+                  </Link>
+                </li>
+              )}
+              {/* Voting is the headline, but the door for new nominees stays open. */}
+              {votingOpen && (
+                <li>
+                  <Link href="/nominate" className="group flex items-center gap-2 text-sm text-muted-foreground hover:text-accent transition-colors cursor-pointer" data-testid="link-footer-nominate">
+                    <Send className="w-4 h-4 text-accent/70 group-hover:text-accent transition-colors" />
+                    Nominate (still open)
                   </Link>
                 </li>
               )}
@@ -145,8 +154,12 @@ export function Footer() {
                   <Calendar className="w-4 h-4 text-primary" />
                 </div>
                 <div className="min-w-0">
-                  <p className="text-xs text-muted-foreground/70 uppercase tracking-wider">Voting Opens</p>
-                  <p className="text-sm text-white font-semibold">25th October 2026 · Midnight EAT</p>
+                  <p className="text-xs text-muted-foreground/70 uppercase tracking-wider">
+                    {votingPre ? "Voting Opens" : "Voting Closes"}
+                  </p>
+                  <p className="text-sm text-white font-semibold">
+                    {votingPre ? "25th October 2026 · Midnight EAT" : "6th December 2026 · Midnight EAT"}
+                  </p>
                 </div>
               </li>
               <li className="flex items-start gap-3">
@@ -155,7 +168,7 @@ export function Footer() {
                 </div>
                 <div className="min-w-0">
                   <p className="text-xs text-muted-foreground/70 uppercase tracking-wider">Awards Night</p>
-                  <p className="text-sm text-white font-semibold">Date to be announced soon</p>
+                  <p className="text-sm text-white font-semibold">12 December 2026</p>
                 </div>
               </li>
               <li className="flex items-start gap-3">
@@ -164,7 +177,7 @@ export function Footer() {
                 </div>
                 <div className="min-w-0">
                   <p className="text-xs text-muted-foreground/70 uppercase tracking-wider">Held At</p>
-                  <p className="text-sm text-white font-semibold">Express Way Lounge, Mombasa Road</p>
+                  <p className="text-sm text-white font-semibold">Venue to be announced</p>
                 </div>
               </li>
             </ul>
@@ -178,10 +191,10 @@ export function Footer() {
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm text-white/80 font-semibold leading-snug">
-                Interested in being part of Hope Awards Kenya 2026?
+                It's voting time — but you can still nominate.
               </p>
               <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
-                Nominations for this edition are now closed. However, you can still submit a late nomination request — our team reviews every entry and will reach out if a spot opens up.
+                Voting is live until midnight, 6 December. Nominations stay open alongside it: submit yourself or an artist, our team reviews every entry, and once approved fans can vote for them straight away.
               </p>
             </div>
             <Link
@@ -190,7 +203,7 @@ export function Footer() {
               className="shrink-0 flex items-center gap-2 px-4 py-2 bg-primary/15 border border-primary/30 text-primary rounded-xl text-xs font-bold hover:bg-primary/25 transition-colors whitespace-nowrap"
             >
               <Send className="w-3 h-3" />
-              Submit a request
+              Nominate now
             </Link>
           </div>
         )}

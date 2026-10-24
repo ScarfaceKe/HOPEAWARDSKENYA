@@ -61,6 +61,12 @@ export async function runMigrations() {
       );
     `);
 
+    // The gateway's own transaction id, so a payment whose callback was lost can
+    // still be confirmed against MegaPay and credited (see the status route).
+    await client.query(`
+      ALTER TABLE pending_payments ADD COLUMN IF NOT EXISTS gateway_request_id TEXT;
+    `);
+
     await client.query(`
       CREATE TABLE IF NOT EXISTS categories (
         id TEXT PRIMARY KEY,

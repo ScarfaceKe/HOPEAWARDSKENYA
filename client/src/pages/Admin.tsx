@@ -3,7 +3,7 @@ import { useLocation, useSearch } from "wouter";
 import { useCreateArtist } from "@/hooks/use-artists";
 import { useToast } from "@/hooks/use-toast";
 import { motion } from "framer-motion";
-import { ShieldAlert, ShieldCheck, KeyRound, Activity, Plus, Mic2, Image as ImageIcon, Lock, LogOut, Check, X, Inbox, Search, Trash2, Upload, Users, AlertTriangle, Download, BarChart2, Shuffle, Pencil, Loader2, Tags } from "lucide-react";
+import { ShieldAlert, ShieldCheck, KeyRound, Activity, Plus, Mic2, Image as ImageIcon, Lock, LogOut, Check, X, Inbox, Search, Trash2, Upload, Users, AlertTriangle, Download, BarChart2, Shuffle, Pencil, Loader2, Tags, Smartphone } from "lucide-react";
 import { CATEGORY_CAP } from "@shared/schema";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest, csrfFetch } from "@/lib/queryClient";
@@ -287,6 +287,32 @@ export default function Admin() {
     },
     enabled: isAuthed && activeTab === "security",
   });
+
+  // Live M-Pesa STK test (Security tab): sends a real prompt so the gateway can
+  // be proven, not assumed. Reads nothing from storage — the test order is never
+  // recorded as a vote.
+  const [stkPhone, setStkPhone] = useState("");
+  const [stkSending, setStkSending] = useState(false);
+  const [stkResult, setStkResult] = useState<any>(null);
+
+  const sendStkTest = async () => {
+    setStkSending(true);
+    setStkResult(null);
+    try {
+      const res = await csrfFetch("/api/admin/test-stk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ phone: stkPhone }),
+      });
+      const data = await res.json().catch(() => ({}));
+      setStkResult({ ...data, ok: res.ok && data?.ok === true, httpStatus: data?.httpStatus ?? res.status });
+    } catch (err: any) {
+      setStkResult({ ok: false, message: err?.message || "Could not reach the server. Try again." });
+    } finally {
+      setStkSending(false);
+    }
+  };
 
   const { mutate: createArtist, isPending } = useCreateArtist();
   const { toast } = useToast();
@@ -719,6 +745,19 @@ export default function Admin() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {/* Nominations do not stop when voting starts — this is the shortcut
+                to the same public form fans use, admin review still applies. */}
+            <a
+              href="/nominate"
+              target="_blank"
+              rel="noopener noreferrer"
+              data-testid="link-admin-nominate"
+              className="flex items-center gap-2 px-4 py-2 bg-primary/15 border border-primary/40 rounded-xl text-primary hover:bg-primary/25 transition-all"
+              title="Nominations stay open during voting — opens the public nomination form"
+            >
+              <Plus className="w-4 h-4" />
+              <span className="text-sm font-bold uppercase tracking-wider hidden sm:inline">Nominate</span>
+            </a>
             <a
               href="/api/requests/export.csv"
               data-testid="link-export-nominees"
@@ -1872,6 +1911,66 @@ export default function Admin() {
 
         {activeTab === "security" && (
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
+            {/* Live M-Pesa STK test */}
+            <div className="bg-card border border-primary/30 rounded-2xl p-6">
+              <div className="flex items-center gap-2 mb-2">
+                <Smartphone className="w-5 h-5 text-primary" />
+                <h3 className="font-display text-lg text-white">TEST THE M-PESA PUSH</h3>
+              </div>
+              <p className="text-sm text-muted-foreground mb-4">
+                Sends a real <strong className="text-white/90">10 KES</strong> STK prompt from MegaPay to the
+                number you enter, so you can confirm the gateway is live instead of hoping. The test is never
+                recorded as a vote — the callback logs it as a test. Only approve the prompt on a phone you
+                control: entering your PIN really does deduct 10 KES.
+              </p>
+              <div className="flex flex-col sm:flex-row gap-3">
+                <input
+                  type="tel"
+                  inputMode="numeric"
+                  value={stkPhone}
+                  onChange={(e) => setStkPhone(e.target.value)}
+                  placeholder="0712 345 678"
+                  data-testid="input-stk-phone"
+                  className="flex-1 bg-black/50 border border-white/10 rounded-xl py-3 px-4 text-white placeholder:text-white/20 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all"
+                />
+                <button
+                  onClick={sendStkTest}
+                  disabled={stkSending || stkPhone.trim().length < 9}
+                  data-testid="button-stk-test"
+                  className="px-5 py-3 bg-primary text-black rounded-xl font-display text-sm tracking-wide hover:bg-primary/90 transition-all disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2"
+                >
+                  {stkSending && <Loader2 className="w-4 h-4 animate-spin" />}
+                  {stkSending ? "SENDING…" : "SEND TEST PROMPT"}
+                </button>
+              </div>
+
+              {stkResult && (
+                <div
+                  data-testid="stk-result"
+                  className={`mt-4 rounded-xl border px-4 py-3 text-sm ${
+                    stkResult.ok
+                      ? "border-secondary/40 bg-secondary/10 text-secondary"
+                      : "border-red-500/40 bg-red-500/10 text-red-300"
+                  }`}
+                >
+                  <p className="font-display tracking-wide">
+                    {stkResult.ok ? "GATEWAY ACCEPTED THE PUSH" : "PUSH NOT ACCEPTED"}
+                  </p>
+                  <p className="mt-1 text-white/80">{stkResult.message}</p>
+                  <div className="mt-2 space-y-1 text-[11px] font-mono text-muted-foreground break-all">
+                    {stkResult.reference && <p>reference: {stkResult.reference}</p>}
+                    {stkResult.phone && <p>sent to: {stkResult.phone}</p>}
+                    {typeof stkResult.httpStatus === "number" && <p>http: {stkResult.httpStatus}</p>}
+                  </div>
+                  {stkResult.gateway && (
+                    <pre className="mt-2 max-h-40 overflow-auto bg-black/40 rounded-lg p-3 text-[11px] text-white/70 whitespace-pre-wrap break-all">
+                      {JSON.stringify(stkResult.gateway, null, 2)}
+                    </pre>
+                  )}
+                </div>
+              )}
+            </div>
+
             {/* What is protecting the panel right now */}
             <div className="bg-card border border-white/10 rounded-2xl p-6">
               <div className="flex items-center gap-2 mb-4">

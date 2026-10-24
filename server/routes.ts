@@ -8,9 +8,9 @@ import { pool } from "./db";
 import { storage, CATEGORY_CAP, VOTING_START, VOTING_END } from "./storage";
 import { apiCache, imgCache, TTL_API, TTL_IMG } from "./cache";
 import { api } from "@shared/routes";
-import { insertRequestSchema, CATEGORIES, type ArtistResponse, type AwardCategoryOption } from "@shared/schema";
+import { insertRequestSchema, CATEGORIES, type ArtistResponse, type AwardCategoryOption, type PendingPayment } from "@shared/schema";
 import { DISCOVERY_TAGS, categoriesWithTag, type DiscoveryTagId } from "@shared/categoryContent";
-import { PENDING_PAYMENT_RETENTION_DAYS } from "@shared/site";
+import { PENDING_PAYMENT_RETENTION_DAYS, VOTE_PRICE_KES } from "@shared/site";
 import { z } from "zod";
 import crypto from "crypto";
 import { recordAlert, recordAlertThrottled, getRecentAlerts } from "./alerts";
@@ -911,6 +911,104 @@ export async function registerRoutes(
     return res.json({ provider: "megapay" });
   });
 
+  /**
+   * The one and only place a paid order turns into votes.
+   *
+   * Idempotent by construction: `votes.paystack_reference` is unique, and
+   * `storage.createVote` runs the insert and the nominee's total in one
+   * transaction, so a callback, a status poll and a retry arriving at the same
+   * moment credit the order exactly once. Every caller must hold proof of
+   * payment before calling — this function never asks the gateway.
+   */
+  async function creditPendingOrder(pending: PendingPayment, source: string) {
+    const vote = await storage.createVote({
+      artistId: pending.artistId,
+      votesAdded: pending.votesAdded,
+      amountKes: pending.amountKes,
+      paystackReference: pending.reference,
+      voterPhone: pending.voterPhone ?? null,
+    });
+    await storage.deletePendingPayment(pending.reference).catch(() => {});
+    apiCache.clear();
+    const artist = await storage.getArtist(pending.artistId);
+    console.log(
+      `[VOTE CREDITED] source=${source}, ref=${pending.reference}, artist=${pending.artistId}, votes=${pending.votesAdded}, amount=${pending.amountKes}KES, total=${artist?.totalVotes ?? "?"}`,
+    );
+    return { vote, totalVotes: artist?.totalVotes ?? 0 };
+  }
+
+  /**
+   * Asks MegaPay what actually happened to an order, so a lost callback can
+   * never mean "fan paid, vote never counted". `ResultCode: 0` on its own only
+   * means "request accepted", so proof of payment requires a completed
+   * transaction status or an M-Pesa receipt.
+   *
+   * Results are cached for a few seconds because the vote dialog polls.
+   */
+  const gatewayStatusCache = new Map<string, { at: number; value: GatewayStatus }>();
+  type GatewayStatus = {
+    paid: boolean;
+    failed: boolean;
+    amountMismatch: boolean;
+    reason: string;
+    amount: number | null;
+  };
+
+  async function fetchGatewayStatus(pending: PendingPayment): Promise<GatewayStatus | null> {
+    const apiKey = process.env.MEGAPAY_API_KEY;
+    const email = process.env.MEGAPAY_EMAIL || "";
+    if (!apiKey || !email || !pending.gatewayRequestId) return null;
+
+    const cached = gatewayStatusCache.get(pending.reference);
+    if (cached && Date.now() - cached.at < 4000) return cached.value;
+
+    try {
+      const response = await fetch("https://megapay.co.ke/backend/v1/transactionstatus", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          api_key: apiKey,
+          email,
+          transaction_request_id: pending.gatewayRequestId,
+        }),
+      });
+      const data: any = await response.json().catch(() => ({}));
+
+      const statusText = String(data.TransactionStatus ?? data.transaction_status ?? "").toLowerCase();
+      const code = String(data.TransactionCode ?? data.transaction_code ?? "");
+      const amountRaw = Number(data.TransactionAmount ?? data.transaction_amount ?? data.Amount);
+      const amount = Number.isFinite(amountRaw) && amountRaw > 0 ? amountRaw : null;
+
+      // MegaPay answers an unpaid transaction with `TransactionReceipt: "N/A"`,
+      // so a receipt only counts when it is a real M-Pesa code.
+      const receipt = String(data.TransactionReceipt ?? data.transaction_receipt ?? "").trim();
+      const hasReceipt = !!receipt && !/^(n\/?a|none|null|-|0)$/i.test(receipt);
+
+      const paid = hasReceipt || statusText === "completed" || (statusText === "success" && code === "0");
+      const failed = /cancel|fail|timeout|insufficient|rejected/.test(statusText) || code === "1032";
+
+      const value: GatewayStatus = {
+        paid,
+        failed: !paid && failed,
+        amountMismatch: paid && amount !== null && amount !== pending.amountKes,
+        reason: /cancel/.test(statusText)
+          ? "The M-Pesa request was cancelled on your phone — you have not been charged."
+          : failed
+            ? "The M-Pesa payment was declined — you have not been charged."
+            : String(data.ResultDesc ?? data.errorMessage ?? ""),
+        amount,
+      };
+
+      // Keep the map from growing for the life of the process.
+      if (gatewayStatusCache.size > 500) gatewayStatusCache.clear();
+      gatewayStatusCache.set(pending.reference, { at: Date.now(), value });
+      return value;
+    } catch (err: any) {
+      console.error(`[MEGAPAY STATUS] Lookup failed for ref ${pending.reference}:`, err?.message || err);
+      return null;
+    }
+  }
+
   app.post("/api/megapay/initialize", async (req, res) => {
     const now = Date.now();
 
@@ -997,8 +1095,17 @@ export async function registerRoutes(
         return res.status(400).json({ message: data.message || "Failed to initiate M-Pesa payment", megapayResponse: data });
       }
 
+      // Store the gateway's transaction id so this order can still be confirmed
+      // directly with MegaPay if its callback never reaches us.
+      const gatewayRequestId = data.transaction_request_id || data.CheckoutRequestID;
+      if (gatewayRequestId) {
+        await storage
+          .setPendingGatewayRequestId(reference, String(gatewayRequestId))
+          .catch((err) => console.error("[PENDING] Could not store gateway request id:", err));
+      }
+
       return res.json({
-        checkout_id: data.transaction_request_id || data.CheckoutRequestID,
+        checkout_id: gatewayRequestId,
         reference,
         status: "pending",
         message: "STK Push sent to your phone. Please enter your M-Pesa PIN to complete payment.",
@@ -1016,30 +1123,190 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/megapay/status/:reference", async (req, res) => {
-    const reference = String(req.params.reference);
+  /**
+   * Admin-only live test of the M-Pesa STK push.
+   *
+   * Sends a real prompt to the number the admin types, so the gateway
+   * credentials and the reachability of MegaPay can be proven instead of
+   * inferred. It deliberately creates **no** pending payment: the callback can
+   * only record a vote for a pending order it can find, so a test payment can
+   * never add to a nominee's public total. Successful test payments arrive with
+   * a `hopetest-` reference and are logged by the callback, not counted.
+   */
+  const lastStkTestAt = new Map<string, number>();
+  app.post("/api/admin/test-stk", requireAdmin, async (req, res) => {
+    const ip = requestIp(req);
+    const now = Date.now();
 
-    const existing = await storage.getVoteByReference(reference);
-    if (existing) {
-      const existingArtist = await storage.getArtist(existing.artistId);
-      return res.json({ status: "already_recorded", vote: existing, totalVotes: existingArtist?.totalVotes ?? 0 });
+    if (now - (lastStkTestAt.get(ip) ?? 0) < 20_000) {
+      return res.status(429).json({ message: "Wait a few seconds before sending another test prompt." });
+    }
+
+    const phone = normalizeVotePhone((req.body ?? {}).phone);
+    if (!phone) {
+      return res.status(400).json({ message: "Enter a valid Safaricom M-Pesa number, e.g. 0712 345 678." });
     }
 
     const megapayApiKey = process.env.MEGAPAY_API_KEY;
-    if (!megapayApiKey) {
-      return res.status(500).json({ message: "Payment system not configured" });
+    const megapayEmail = process.env.MEGAPAY_EMAIL || "";
+    if (!megapayApiKey || !megapayEmail) {
+      return res.status(500).json({
+        message: "MegaPay credentials are missing on the server (MEGAPAY_API_KEY / MEGAPAY_EMAIL).",
+      });
+    }
+
+    lastStkTestAt.set(ip, now);
+    const reference = `hopetest-${now}-${crypto.randomBytes(3).toString("hex")}`;
+    const amountKes = VOTE_PRICE_KES;
+
+    try {
+      const response = await fetch("https://megapay.co.ke/backend/v1/initiatestk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          api_key: megapayApiKey,
+          email: megapayEmail,
+          amount: String(amountKes),
+          msisdn: phone,
+          reference,
+        }),
+      });
+
+      const data: any = await response.json().catch(() => ({}));
+      const accepted = data.success === true || data.ResultCode === "0";
+
+      console.log(
+        `[STK TEST] ref=${reference}, amount=${amountKes}KES, msisdn=${maskPhone(phone)}, http=${response.status}, response=${JSON.stringify(data)}`,
+      );
+      audit(
+        req,
+        "payment.stk_test",
+        "payment",
+        reference,
+        `Sent a live ${amountKes} KES STK test to ${maskPhone(phone)} — ${accepted ? "gateway accepted" : "gateway refused"}`,
+      );
+
+      return res.json({
+        ok: accepted,
+        reference,
+        amountKes,
+        phone: maskPhone(phone),
+        httpStatus: response.status,
+        gateway: data,
+        message: accepted
+          ? "MegaPay accepted the request. Check the phone for the M-Pesa prompt."
+          : data.message || data.errorMessage || "MegaPay refused the request.",
+      });
+    } catch (err: any) {
+      console.error("[STK TEST] MegaPay request failed:", err?.message || err);
+      audit(
+        req,
+        "payment.stk_test",
+        "payment",
+        reference,
+        `Live ${amountKes} KES STK test to ${maskPhone(phone)} could not reach MegaPay`,
+      );
+      return res.status(502).json({
+        ok: false,
+        reference,
+        amountKes,
+        phone: maskPhone(phone),
+        message: `Could not reach MegaPay: ${err?.message || "network error"}`,
+      });
+    }
+  });
+
+  /**
+   * The truth about one order, for the vote dialog that is waiting on it.
+   *
+   * Three outcomes, and only one of them says "you voted":
+   *  - `recorded` — a row exists in `votes`, so the fan's votes are on the board.
+   *  - `failed`   — M-Pesa cancelled/rejected it; no money moved, no vote owed.
+   *  - `pending`  — no proof either way yet (the fan may not have entered their
+   *                 PIN), so the client keeps waiting instead of congratulating.
+   *
+   * The callback is no longer the only way a vote can land: if the callback is
+   * lost (the free instance asleep, a gateway retry that never came), this route
+   * asks MegaPay for the transaction result and credits the order itself. So a
+   * fan cannot be charged for a vote that never counts.
+   */
+  app.get("/api/megapay/status/:reference", async (req, res) => {
+    const reference = String(req.params.reference);
+
+    // References are ours (hopeawards-…) or admin tests (hopetest-…); anything
+    // else cannot be in the table, and unrecognised input is not echoed back.
+    if (!/^[a-z0-9-]{8,100}$/i.test(reference)) {
+      return res.status(404).json({ status: "unknown", message: "Payment not found" });
     }
 
     try {
-      // Check pending payment status from our DB
-      const pending = (await storage.getAllPendingPayments()).find(p => p.reference === reference);
-      if (!pending) {
-        return res.status(404).json({ message: "Payment not found" });
+      const existing = await storage.getVoteByReference(reference);
+      if (existing) {
+        const existingArtist = await storage.getArtist(existing.artistId);
+        return res.json({
+          status: "recorded",
+          vote: existing,
+          votesAdded: existing.votesAdded,
+          totalVotes: existingArtist?.totalVotes ?? 0,
+        });
       }
 
-      // For MegaPay STK Push, the callback handles payment confirmation
-      // This endpoint just checks if the vote was recorded
-      return res.json({ status: "pending", message: "Payment is being processed. You will receive an M-Pesa prompt on your phone." });
+      const pending = await storage.getPendingPayment(reference);
+      if (!pending) {
+        return res.status(404).json({ status: "unknown", message: "Payment not found" });
+      }
+
+      const gateway = await fetchGatewayStatus(pending);
+
+      if (gateway?.paid) {
+        if (gateway.amountMismatch) {
+          recordAlertThrottled(
+            "critical",
+            "payment.callback_amount_mismatch",
+            "MegaPay reports a completed payment for a different amount — vote not recorded",
+            { reference, claimedAmount: gateway.amount, expected: pending.amountKes },
+          );
+          return res.json({
+            status: "pending",
+            message: "MegaPay is still confirming this payment. Do not pay again — we are checking it.",
+          });
+        }
+
+        if (Date.now() > VOTING_END) {
+          recordAlertThrottled(
+            "critical",
+            "payment.late_after_close",
+            "Payment completed after the enforced voting close — refund needed, no vote recorded",
+            { reference, votes: pending.votesAdded, amountKes: pending.amountKes },
+          );
+          return res.json({
+            status: "closed",
+            message: "Voting has closed. If you were charged, contact us and we will refund you.",
+          });
+        }
+
+        const credited = await creditPendingOrder(pending, "status-reconcile");
+        console.log(`[MEGAPAY RECONCILE] Callback was missing — credited ref=${reference} from the gateway status`);
+        return res.json({
+          status: "recorded",
+          reconciled: true,
+          vote: credited.vote,
+          votesAdded: credited.vote.votesAdded,
+          totalVotes: credited.totalVotes,
+        });
+      }
+
+      if (gateway?.failed) {
+        return res.json({
+          status: "failed",
+          message: gateway.reason || "The M-Pesa payment was cancelled or declined. You have not been charged.",
+        });
+      }
+
+      return res.json({
+        status: "pending",
+        message: "Waiting for you to approve the M-Pesa prompt on your phone.",
+      });
     } catch (err: any) {
       console.error("MegaPay status check error:", err);
       return res.status(500).json({ message: "Status check failed" });
@@ -1148,6 +1415,14 @@ export async function registerRoutes(
 
     console.log(`[MEGAPAY CALLBACK] ref=${reference}, status=${status}, result_code=${result_code}, desc=${result_desc}`);
 
+    // Admin live test (POST /api/admin/test-stk): real money may have moved, but
+    // a test never creates a vote and must never raise the "no matching pending
+    // order" alarm that a forged callback would.
+    if (reference.startsWith("hopetest-")) {
+      console.log(`[STK TEST CALLBACK] ref=${reference}, status=${status}, result_code=${result_code}, desc=${result_desc}`);
+      return res.status(200).json({ status: "test_ok" });
+    }
+
     if (status === "success" || result_code === "0" || result_code === 0 || result_code === "0000") {
       try {
         const existing = await storage.getVoteByReference(reference);
@@ -1157,8 +1432,7 @@ export async function registerRoutes(
 
         // The pending order is authoritative for artist, votes and amount —
         // never the reference string or the callback body.
-        const pendingPayments = await storage.getAllPendingPayments();
-        const pending = pendingPayments.find(p => p.reference === reference);
+        const pending = await storage.getPendingPayment(reference);
         if (!pending) {
           recordAlertThrottled(
             "warning",
@@ -1209,16 +1483,13 @@ export async function registerRoutes(
 
         const voterPhone = req.body.Msisdn || req.body.msisdn || req.body.phone || pending.voterPhone;
 
-        await storage.createVote({
-          artistId,
-          votesAdded: pending.votesAdded,
-          amountKes: pending.amountKes,
-          paystackReference: reference,
-          voterPhone: voterPhone ?? null,
-        });
-        await storage.deletePendingPayment(reference).catch(() => {});
-        apiCache.clear();
-        console.log(`[MEGAPAY CALLBACK] Vote recorded: ref=${reference}, artist=${artistId}, votes=${pending.votesAdded}, amount=${pending.amountKes}KES, phone=${maskPhone(String(voterPhone ?? ""))}`);
+        // Same credit path as the status route, so the two can race without ever
+        // crediting the order twice.
+        const credited = await creditPendingOrder(
+          { ...pending, voterPhone: (voterPhone as string | null) ?? pending.voterPhone },
+          "callback",
+        );
+        console.log(`[MEGAPAY CALLBACK] Vote recorded: ref=${reference}, artist=${pending.artistId}, votes=${credited.vote.votesAdded}, amount=${pending.amountKes}KES, phone=${maskPhone(String(credited.vote.voterPhone ?? ""))}`);
       } catch (err: any) {
         console.error(`[MEGAPAY CALLBACK CRITICAL] Vote creation failed for ref ${reference}:`, err);
         return res.status(500).json({ status: "error" });
@@ -1523,8 +1794,21 @@ export async function registerRoutes(
             await storage.deletePendingPayment(p.reference);
             continue;
           }
-          // MegaPay handles payment via callback - we just log old pending payments
-          console.log(`[RECOVERY] Old pending payment: ref=${p.reference}, artist=${p.artistId}, created=${p.createdAt}`);
+
+          // A fan who paid and closed the tab must still get their votes: ask the
+          // gateway directly rather than waiting for a callback that was lost.
+          const gateway = await fetchGatewayStatus(p);
+          if (gateway?.paid && !gateway.amountMismatch && Date.now() <= VOTING_END) {
+            const credited = await creditPendingOrder(p, "background-reconcile");
+            console.log(
+              `[RECOVERY] Credited a paid order whose callback never arrived: ref=${p.reference}, votes=${credited.vote.votesAdded}`,
+            );
+            continue;
+          }
+
+          console.log(
+            `[RECOVERY] Old pending payment: ref=${p.reference}, artist=${p.artistId}, gateway=${gateway?.paid ? "paid-mismatch" : "unconfirmed"}, created=${p.createdAt}`,
+          );
         } catch (err) {
           console.error(`[RECOVERY] Error processing pending payment ${p.reference}:`, err);
         }

@@ -20,16 +20,25 @@ function Eyebrow({ children, tone = "coral" }: { children: React.ReactNode; tone
 
 function NominationShareBanner() {
   const [copied, setCopied] = useState(false);
+  // Nominations are the story before midnight; voting is the story after it.
+  // The same banner flips with the clock so the landing page never keeps asking
+  // for nominations while the vote is the thing that matters.
+  const { phase } = useVotingStatus();
+  const votingLive = phase !== "pre";
 
   const nominationUrl = `${window.location.origin}/nominate`;
+  const voteUrl = `${window.location.origin}/discover`;
+  const shareUrl = votingLive ? voteUrl : nominationUrl;
 
   const waMessage = encodeURIComponent(
-    `🎵 *HOPE AWARDS KENYA 2026* 🏆\n\nAre you an Artist, DJ or MC? Now is your chance!\n\n👉 Nominate yourself here:\n${nominationUrl}\n\nVoting opens 25th October 2026. Awards night date to be announced.\n\n🌟 Share with every artist you know!`
+    votingLive
+      ? `🏆 *HOPE AWARDS KENYA 2026* — voting is LIVE!\n\n1 vote = 10 KES, paid with M-Pesa.\n\n👉 Vote for your favourite here:\n${voteUrl}\n\nVoting closes 6th December 2026. Awards night: 12 December 2026.\n\n🌟 Share with every fan you know!`
+      : `🎵 *HOPE AWARDS KENYA 2026* 🏆\n\nAre you an Artist, DJ or MC? Now is your chance!\n\n👉 Nominate yourself here:\n${nominationUrl}\n\nVoting opens 25th October 2026. Awards night: 12 December 2026.\n\n🌟 Share with every artist you know!`
   );
   const waLink = `https://wa.me/?text=${waMessage}`;
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(nominationUrl);
+    navigator.clipboard.writeText(shareUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 2500);
   };
@@ -41,13 +50,14 @@ function NominationShareBanner() {
           style={{ background: "linear-gradient(120deg, rgba(240,100,66,0.16), rgba(228,88,130,0.16) 55%, rgba(38,178,152,0.14))" }}>
           <div className="relative z-10 flex flex-col lg:flex-row items-center gap-8 p-8 md:p-10">
             <div className="text-center lg:text-left flex-1">
-              <Eyebrow tone="rose">Artists · DJs · MCs</Eyebrow>
+              <Eyebrow tone="rose">{votingLive ? "Voting is live" : "Artists · DJs · MCs"}</Eyebrow>
               <h2 className="font-display text-4xl md:text-5xl text-foreground mt-3 mb-3 leading-[1.05]">
-                Nominate yourself
+                {votingLive ? "Vote for your favourite" : "Nominate yourself"}
               </h2>
               <p className="text-muted-foreground text-lg leading-relaxed max-w-xl mx-auto lg:mx-0">
-                Are you an artist, DJ or MC? Submit your own nomination now — voting opens on 25 October.
-                Share this link with every artist you know.
+                {votingLive
+                  ? "The vote is open. Pick your favourite artist, DJ or MC, pay with M-Pesa and put them ahead — 1 vote is 10 KES. Voting closes midnight, 6 December."
+                  : "Are you an artist, DJ or MC? Submit your own nomination now — voting opens on 25 October. Share this link with every artist you know."}
               </p>
             </div>
 
@@ -62,12 +72,12 @@ function NominationShareBanner() {
                 <svg viewBox="0 0 24 24" className="w-6 h-6 fill-current" xmlns="http://www.w3.org/2000/svg">
                   <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
                 </svg>
-                SHARE ON WHATSAPP
+                {votingLive ? "SHARE THE VOTE" : "SHARE ON WHATSAPP"}
               </a>
 
               <div className="flex items-center gap-2 w-full lg:w-auto bg-black/35 border border-white/10 rounded-2xl px-4 py-3">
                 <span className="text-muted-foreground text-sm font-mono truncate flex-1 max-w-[220px]">
-                  {nominationUrl}
+                  {shareUrl}
                 </span>
                 <button
                   onClick={handleCopy}
@@ -80,11 +90,18 @@ function NominationShareBanner() {
               </div>
               {copied && <span className="text-xs text-accent font-semibold">Link copied!</span>}
 
-              <Link href="/nominate">
+              <Link href={votingLive ? "/discover" : "/nominate"}>
                 <span className="text-sm text-muted-foreground hover:text-foreground transition-colors underline underline-offset-4 cursor-pointer">
-                  Or fill in the form directly →
+                  {votingLive ? "Find your nominee and vote →" : "Or fill in the form directly →"}
                 </span>
               </Link>
+              {votingLive && (
+                <Link href="/nominate">
+                  <span className="text-sm text-accent font-semibold hover:text-foreground transition-colors underline underline-offset-4 cursor-pointer" data-testid="link-banner-nominate">
+                    Still want in? Nominations stay open →
+                  </span>
+                </Link>
+              )}
             </div>
           </div>
         </div>
@@ -294,15 +311,30 @@ export default function Home() {
                   </button>
                 )}
 
-                <Link href={phase === "pre" ? "/nominate" : "/hall-of-fame"}>
+                <Link href={phase === "pre" ? "/nominate" : phase === "open" ? "/discover" : "/hall-of-fame"}>
                   <button
                     data-testid="button-nominate-hero"
                     className="w-full sm:w-auto px-8 py-4 rounded-2xl glass text-foreground font-display text-xl transition hover:bg-white/10 active:scale-95 flex items-center justify-center gap-3 cursor-pointer"
                   >
-                    {phase === "pre" ? <><Send className="w-5 h-5 text-accent" /> Nominate</> : <><Trophy className="w-5 h-5 text-primary" /> Hall of Fame</>}
+                    {phase === "pre" ? (
+                      <><Send className="w-5 h-5 text-accent" /> Nominate</>
+                    ) : phase === "open" ? (
+                      <><Vote className="w-5 h-5 text-secondary" /> Vote now</>
+                    ) : (
+                      <><Trophy className="w-5 h-5 text-primary" /> Hall of Fame</>
+                    )}
                   </button>
                 </Link>
               </div>
+
+              {phase === "open" && (
+                <p className="mt-4 text-sm text-muted-foreground" data-testid="notice-nominations-open">
+                  It's voting time — but nominations are still open.{" "}
+                  <Link href="/nominate" className="text-accent font-semibold underline underline-offset-4 hover:text-white transition-colors">
+                    Nominate yourself or an artist →
+                  </Link>
+                </p>
+              )}
 
               <div className="mt-8 flex flex-wrap items-center justify-center lg:justify-start gap-x-6 gap-y-3 text-sm text-muted-foreground">
                 <span className="inline-flex items-center gap-2"><ShieldCheck className="w-4 h-4 text-accent" /> Secure M-Pesa checkout</span>
@@ -331,15 +363,19 @@ export default function Home() {
               {/* Anchored info chips with real content */}
               <div className="absolute -left-3 sm:-left-8 top-10 glass-strong rounded-2xl px-4 py-3 shadow-xl shadow-black/40">
                 <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Awards night</p>
-                <p className="font-display text-lg text-foreground leading-tight">Date to be announced</p>
+                <p className="font-display text-lg text-foreground leading-tight">12 Dec 2026</p>
               </div>
               <div className="absolute -right-2 sm:-right-6 bottom-28 glass-gold rounded-2xl px-4 py-3 shadow-xl shadow-black/40">
-                <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-primary">Voting opens</p>
-                <p className="font-display text-lg text-foreground leading-tight">25 October</p>
+                <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-primary">
+                  {phase === "pre" ? "Voting opens" : "Voting closes"}
+                </p>
+                <p className="font-display text-lg text-foreground leading-tight">
+                  {phase === "pre" ? "25 October" : "6 December"}
+                </p>
               </div>
               <div className="absolute -right-1 sm:-right-4 top-6 glass-green rounded-2xl px-4 py-3 shadow-xl shadow-black/40">
                 <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-accent">Venue</p>
-                <p className="font-display text-lg text-foreground leading-tight">Express Way Lounge</p>
+                <p className="font-display text-lg text-foreground leading-tight">To be announced</p>
               </div>
             </motion.div>
           </div>
@@ -387,10 +423,10 @@ export default function Home() {
                   Awards night is coming
                 </h2>
                 <p className="text-muted-foreground text-lg mt-4 max-w-xl mx-auto lg:mx-0">
-                  Winners are crowned live at Express Way Lounge, Mombasa Road. Doors open at 4:00 PM — the exact date will be announced here first.
+                  Winners are crowned live — the venue and the exact date will be announced here first.
                 </p>
                 <div className="mt-6 flex flex-wrap items-center justify-center lg:justify-start gap-x-6 gap-y-3 text-foreground/85 font-semibold">
-                  <span className="inline-flex items-center gap-2"><MapPin className="w-5 h-5 text-primary" /> Express Way Lounge, Mombasa Road</span>
+                  <span className="inline-flex items-center gap-2"><MapPin className="w-5 h-5 text-primary" /> Venue to be announced</span>
                   <span className="inline-flex items-center gap-2"><CalendarDays className="w-5 h-5 text-accent" /> Doors 4:00 PM</span>
                 </div>
               </div>
@@ -566,13 +602,27 @@ export default function Home() {
                   <Vote className="w-5 h-5" />
                   Start voting
                 </button>
-                <Link href="/nominate">
+                <Link href={phase === "pre" ? "/nominate" : phase === "open" ? "/discover" : "/hall-of-fame"}>
                   <button className="w-full sm:w-auto px-8 py-4 rounded-2xl glass text-foreground font-display text-xl transition hover:bg-white/10 active:scale-95 cursor-pointer flex items-center justify-center gap-3">
-                    <Send className="w-5 h-5 text-accent" />
-                    Nominate an artist
+                    {phase === "pre" ? (
+                      <><Send className="w-5 h-5 text-accent" /> Nominate an artist</>
+                    ) : phase === "open" ? (
+                      <><Search className="w-5 h-5 text-secondary" /> Find a nominee</>
+                    ) : (
+                      <><Trophy className="w-5 h-5 text-primary" /> Hall of Fame</>
+                    )}
                   </button>
                 </Link>
               </div>
+
+              {phase === "open" && (
+                <p className="mt-5 text-sm text-muted-foreground">
+                  It's voting time — nominations stay open too.{" "}
+                  <Link href="/nominate" className="text-accent font-semibold underline underline-offset-4 hover:text-white transition-colors">
+                    Nominate someone →
+                  </Link>
+                </p>
+              )}
             </div>
           </div>
         </div>

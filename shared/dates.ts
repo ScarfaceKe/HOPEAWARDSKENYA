@@ -15,9 +15,11 @@ export const VOTING_END = new Date("2026-12-06T00:15:00+03:00").getTime();
 export const VOTING_PUBLIC_END = new Date("2026-12-06T00:00:00+03:00").getTime();
 
 /** Short label for interpolated strings, e.g. `Awards night ${AWARDS_DATE}.` */
-export const AWARDS_DATE = "date to be announced";
+export const AWARDS_DATE = "12 December 2026";
 
-export const AWARDS_VENUE = "Express Way Lounge, Mombasa Road";
+// The awards-night venue is not fixed yet. Every page interpolates this string,
+// so the announcement changes in one place when it is confirmed.
+export const AWARDS_VENUE = "a venue to be announced";
 
 /** Full display strings */
 export const VOTING_OPEN_TEXT = "25th October 2026 (12:00 AM midnight EAT)";

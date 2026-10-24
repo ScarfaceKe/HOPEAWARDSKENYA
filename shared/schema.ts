@@ -201,6 +201,12 @@ export type InsertRequest = z.infer<typeof insertRequestSchema>;
 export const pendingPayments = pgTable("pending_payments", {
   id: serial("id").primaryKey(),
   reference: text("reference").notNull(),
+  /**
+   * MegaPay's own `transaction_request_id` (also handed to the browser as
+   * `checkout_id`). Required to ask `/backend/v1/transactionstatus` whether a
+   * payment actually went through when the callback never arrives.
+   */
+  gatewayRequestId: text("gateway_request_id"),
   artistId: integer("artist_id").notNull(),
   votesAdded: integer("votes_added").notNull(),
   amountKes: integer("amount_kes").notNull(),

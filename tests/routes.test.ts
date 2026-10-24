@@ -126,6 +126,26 @@ test("logout is a CSRF-protected write that succeeds with a valid token", async 
   assert.equal(body.isAdmin, false);
 });
 
+test("STK test: admin-only, CSRF-protected, and a bad number never reaches the gateway", async () => {
+  // The admin live test sends a real M-Pesa prompt, so the gates in front of it
+  // matter: no anonymous caller and no CSRF-free write may spend money.
+  const anonymous = await post("/api/admin/test-stk", { phone: "0712345678" });
+  assert.equal(anonymous.status, 403, "an unauthenticated write must be stopped at the CSRF gate");
+
+  const { cookie, csrfToken } = await signIn();
+  const badPhone = await post("/api/admin/test-stk", { phone: "12345" }, { cookie, "x-csrf-token": csrfToken });
+  assert.equal(badPhone.status, 400);
+  assert.match(((await badPhone.json()) as { message: string }).message, /M-Pesa number/i);
+});
+
+test("vote status: a reference we never issued is refused before storage is touched", async () => {
+  // This suite points DATABASE_URL at a closed port, so a 404 (rather than the
+  // 500 a database call would produce) proves the format gate answered first —
+  // nobody can probe the payment table with arbitrary strings.
+  const res = await get("/api/megapay/status/zzz");
+  assert.equal(res.status, 404);
+});
+
 test("ADMIN: wrong password is rejected with an attempt counter", async () => {
   const res = await post("/api/admin/login", { password: "nope" });
   assert.equal(res.status, 401);

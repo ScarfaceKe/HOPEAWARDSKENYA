@@ -263,8 +263,8 @@ export default function About() {
       <section id="awards-night" className="scroll-mt-28">
         <h2>Awards night</h2>
         <p>
-          The {EDITION} awards gala is held at <strong>{AWARDS_VENUE}</strong>. The exact date ({AWARDS_DATE}) is confirmed
-          on this site and on our social pages once finalised, together with the red-carpet start time and access details.
+          The {EDITION} awards gala takes place on <strong>{AWARDS_DATE}</strong>, at {AWARDS_VENUE}. The red-carpet
+          start time and access details are confirmed on this site and on our social pages closer to the night.
         </p>
         <p>
           Winners are called up by category, receive the trophy on stage, and are photographed, filmed and archived on the{" "}

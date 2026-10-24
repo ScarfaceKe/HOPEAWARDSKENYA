@@ -198,7 +198,7 @@ export default function HallOfFame() {
             <Trophy className="w-12 h-12 text-yellow-400 mx-auto mb-4" />
             <h2 className="font-display text-3xl text-white mb-3">THEY WILL NEVER BE FORGOTTEN</h2>
             <p className="text-muted-foreground leading-relaxed mb-2">
-              Hope Awards Kenya 2026 — 3rd Edition. Held at <span className="text-white font-semibold">Express Way Lounge, Mombasa Road</span> — awards date to be announced.
+              Hope Awards Kenya 2026 — 3rd Edition. <span className="text-white font-semibold">Venue to be announced</span> — awards night 12 December 2026.
             </p>
             <p className="text-muted-foreground/60 text-sm">
               Thank you to every fan who voted, every artist who participated, and everyone who made this possible.

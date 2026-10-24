@@ -51,10 +51,17 @@ export function Navbar() {
               </Link>
             )}
             {votingOpen && (
-              <Link href="/" className="flex items-center gap-2 px-5 py-2.5 bg-secondary/10 hover:bg-secondary/20 border border-secondary/30 rounded-full text-secondary font-semibold transition-all hover:neon-box-teal cursor-pointer" data-testid="link-vote-now">
-                <Vote className="w-4 h-4" />
-                <span className="uppercase text-xs tracking-wider">Vote Now</span>
-              </Link>
+              <>
+                {/* Voting is the main job now, but nominating stays available. */}
+                <Link href="/nominate" className="hidden lg:flex items-center gap-1.5 text-muted-foreground hover:text-white transition-colors text-xs font-semibold uppercase tracking-wide cursor-pointer" data-testid="link-nominate-artist">
+                  <Send className="w-3.5 h-3.5" />
+                  Nominate
+                </Link>
+                <Link href="/discover" className="flex items-center gap-2 px-5 py-2.5 bg-secondary/10 hover:bg-secondary/20 border border-secondary/30 rounded-full text-secondary font-semibold transition-all hover:neon-box-teal cursor-pointer" data-testid="link-vote-now">
+                  <Vote className="w-4 h-4" />
+                  <span className="uppercase text-xs tracking-wider">Vote Now</span>
+                </Link>
+              </>
             )}
           </div>
         </div>

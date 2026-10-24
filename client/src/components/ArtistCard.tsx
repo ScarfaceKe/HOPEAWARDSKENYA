@@ -5,6 +5,7 @@ import type { ArtistResponse } from "@shared/routes";
 import { VoteDialog } from "./VoteDialog";
 import { useVotingStatus } from "@/hooks/use-voting-status";
 import { useCategories } from "@/hooks/use-categories";
+import { AWARDS_DATE } from "@shared/dates";
 
 interface ArtistCardProps {
   artist: ArtistResponse;
@@ -19,7 +20,7 @@ export function ArtistCard({ artist }: ArtistCardProps) {
 
   const artistUrl = `${window.location.origin}/artist/${artist.id}`;
   const fullCategoryName = getCategory(artist.category)?.name || "";
-  const waShareMsg = encodeURIComponent(`🎵 Vote for ${artist.name} - ${fullCategoryName} at Hope Awards Kenya 2026!\n\n👉 ${artistUrl}\n\n1 Vote = 10 KES via M-Pesa. Awards night date TBA. #HopeAwardsKenya`);
+  const waShareMsg = encodeURIComponent(`🎵 Vote for ${artist.name} - ${fullCategoryName} at Hope Awards Kenya 2026!\n\n👉 ${artistUrl}\n\n1 Vote = 10 KES via M-Pesa. Awards night ${AWARDS_DATE}. #HopeAwardsKenya`);
 
   const handleShare = async () => {
     if (navigator.share) {

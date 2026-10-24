@@ -30,7 +30,7 @@ async function verifyWithRetry(reference: string, maxAttempts = 4, delayMs = 150
     const r = await fetch(`/api/megapay/status/${reference}`, { credentials: "include" });
     const data = await r.json();
     lastData = data;
-    if (data.status === "success" || data.status === "already_recorded") return data;
+    if (data.status === "recorded" || data.status === "success" || data.status === "already_recorded") return data;
     if (attempt < maxAttempts) await new Promise(res => setTimeout(res, delayMs * attempt));
   }
   return lastData;
@@ -87,9 +87,14 @@ export default function CategoryPage() {
 
     verifyWithRetry(reference)
       .then(async (data) => {
-        if (data.status === "success" || data.status === "already_recorded") {
+        if (data.status === "recorded" || data.status === "success" || data.status === "already_recorded") {
           const artistName = pending.artistName || "the artist";
-          const votes = typeof pending.votes === "number" ? pending.votes : 1;
+          const votes =
+            typeof data.votesAdded === "number"
+              ? data.votesAdded
+              : typeof pending.votes === "number"
+                ? pending.votes
+                : 1;
           const totalVotes = typeof data.totalVotes === "number" ? data.totalVotes : 0;
 
           try {

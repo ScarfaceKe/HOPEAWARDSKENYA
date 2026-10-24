@@ -66,6 +66,8 @@ export interface IStorage {
   deleteOrphanedUploads(olderThanMs: number): Promise<number>;
   createVoteForce(vote: InsertVote): Promise<VoteResponse>;
   createPendingPayment(reference: string, artistId: number, votesAdded: number, amountKes: number, voterPhone: string | null): Promise<void>;
+  setPendingGatewayRequestId(reference: string, gatewayRequestId: string): Promise<void>;
+  getPendingPayment(reference: string): Promise<PendingPayment | undefined>;
   deletePendingPayment(reference: string): Promise<void>;
   getOldPendingPayments(olderThanMs: number): Promise<PendingPayment[]>;
   getAllPendingPayments(): Promise<PendingPayment[]>;
@@ -373,6 +375,18 @@ export class DatabaseStorage implements IStorage {
 
   async createPendingPayment(reference: string, artistId: number, votesAdded: number, amountKes: number, voterPhone: string | null): Promise<void> {
     await db.insert(pendingPayments).values({ reference, artistId, votesAdded, amountKes, voterPhone }).onConflictDoNothing();
+  }
+
+  async setPendingGatewayRequestId(reference: string, gatewayRequestId: string): Promise<void> {
+    await db
+      .update(pendingPayments)
+      .set({ gatewayRequestId })
+      .where(eq(pendingPayments.reference, reference));
+  }
+
+  async getPendingPayment(reference: string): Promise<PendingPayment | undefined> {
+    const [row] = await db.select().from(pendingPayments).where(eq(pendingPayments.reference, reference));
+    return row;
   }
 
   async deletePendingPayment(reference: string): Promise<void> {

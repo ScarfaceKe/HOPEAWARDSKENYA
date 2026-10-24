@@ -160,7 +160,7 @@ export function Countdown() {
             Awards Ceremony — {AWARDS_DATE}
           </span>
         </div>
-        <p className="text-xs text-muted-foreground/40">Express Way Lounge, Mombasa Road</p>
+        <p className="text-xs text-muted-foreground/40">Venue to be announced</p>
       </motion.div>
     );
   }
@@ -260,7 +260,7 @@ export function Countdown() {
             <Trophy className={`w-3.5 h-3.5 ${isPrePhase ? "text-orange-400/60" : "text-rose-400/60"}`} />
             <span className={`text-[11px] font-semibold
               ${isPrePhase ? "text-orange-400/60" : "text-rose-400/60"}`}>
-              Awards Night — <span className={isPrePhase ? "text-orange-300" : "text-rose-300"}>{AWARDS_DATE}</span> · Express Way Lounge, Mombasa Road
+              Awards Night — <span className={isPrePhase ? "text-orange-300" : "text-rose-300"}>{AWARDS_DATE}</span> · Venue to be announced
             </span>
           </div>
         </motion.div>

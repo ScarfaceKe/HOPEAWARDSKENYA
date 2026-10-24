@@ -47,6 +47,8 @@ export function VoteDialog({ artistId, artistName, categoryName, isOpen, onClose
   const [phone, setPhone] = useState<string>("");
   const [isPending, setIsPending] = useState(false);
   const [pollingStatus, setPollingStatus] = useState<string | null>(null);
+  const [confirmed, setConfirmed] = useState<{ votesAdded: number; totalVotes: number } | null>(null);
+  const [failureMessage, setFailureMessage] = useState<string>("");
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const hasFiredConfetti = useRef(false);
   const { toast } = useToast();
@@ -61,6 +63,8 @@ export function VoteDialog({ artistId, artistName, categoryName, isOpen, onClose
         setPhone("");
         setIsPending(false);
         setPollingStatus(null);
+        setConfirmed(null);
+        setFailureMessage("");
         hasFiredConfetti.current = false;
         if (pollTimerRef.current) { clearInterval(pollTimerRef.current); pollTimerRef.current = null; }
       }, 300);
@@ -70,30 +74,47 @@ export function VoteDialog({ artistId, artistName, categoryName, isOpen, onClose
   const startPolling = (reference: string, expectedVotes: number) => {
     if (pollTimerRef.current) clearInterval(pollTimerRef.current);
     let attempts = 0;
-    const maxAttempts = 20; // poll every 3s for 60s
+    // 5 minutes at 3s intervals: an M-Pesa prompt the fan has to dig their phone
+    // out for routinely takes longer than the old 60-second window, and giving up
+    // early was how a paid vote could look like a failure.
+    const maxAttempts = 100;
 
     pollTimerRef.current = setInterval(async () => {
       attempts++;
       try {
         const res = await fetch(`/api/megapay/status/${reference}`);
         const data = await res.json();
-        if (data.status === "already_recorded" || data.status === "confirmed") {
-          // Vote was recorded!
+
+        // "recorded" is only returned when a real vote row exists — the server
+        // reconciles a lost callback with MegaPay first, so this is the point at
+        // which the votes are genuinely on the board.
+        if (data.status === "recorded" || data.status === "already_recorded" || data.status === "success") {
           if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+          setConfirmed({
+            votesAdded: Number(data.votesAdded ?? data.vote?.votesAdded ?? expectedVotes),
+            totalVotes: Number(data.totalVotes ?? 0),
+          });
           setPollingStatus("confirmed");
           sessionStorage.removeItem("pendingVote");
           if (onVoteSuccess) onVoteSuccess();
-          // Fire confetti
           if (!hasFiredConfetti.current) {
             hasFiredConfetti.current = true;
             fireVoteConfetti();
           }
-          // Auto-close after 4 seconds
-          setTimeout(() => { onClose(); }, 4000);
-        } else if (attempts >= maxAttempts) {
+          return;
+        }
+
+        if (data.status === "failed" || data.status === "closed") {
+          if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+          setFailureMessage(data.message || "The payment was not completed. You have not been charged.");
+          setPollingStatus("failed");
+          return;
+        }
+
+        if (attempts >= maxAttempts) {
           if (pollTimerRef.current) clearInterval(pollTimerRef.current);
           setPollingStatus("timeout");
-          toast({ title: "Payment Processing", description: "Your payment may still be processing. Check your M-Pesa messages and try refreshing the page in a few minutes.", variant: "default" });
+          toast({ title: "Still confirming", description: "Your payment may still be processing. We keep checking on our side — refresh this page in a few minutes before trying again.", variant: "default" });
         }
       } catch (err) {
         if (attempts >= maxAttempts) {
@@ -206,11 +227,17 @@ export function VoteDialog({ artistId, artistName, categoryName, isOpen, onClose
                   of the year 2026
                 </p>
 
-                <div className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-full border bg-emerald-500/15 border-emerald-500/40 text-emerald-300 mb-6">
+                <div className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-full border bg-emerald-500/15 border-emerald-500/40 text-emerald-300 mb-3">
                   <span className="text-xs sm:text-sm font-bold tracking-wider uppercase">
-                    ✓ Vote Recorded Successfully
+                    ✓ {confirmed?.votesAdded ?? votes} vote{(confirmed?.votesAdded ?? votes) === 1 ? "" : "s"} added successfully
                   </span>
                 </div>
+                {confirmed && confirmed.totalVotes > 0 && (
+                  <p className="text-xs text-muted-foreground mb-6">
+                    Your vote is counted — {artistName} now has{" "}
+                    <span className="text-white font-bold">{confirmed.totalVotes.toLocaleString()}</span> votes.
+                  </p>
+                )}
 
                 <button
                   onClick={onClose}
@@ -340,7 +367,12 @@ export function VoteDialog({ artistId, artistName, categoryName, isOpen, onClose
               )}
               {pollingStatus === "timeout" && (
                 <p className="text-center text-xs text-amber-400 mt-3">
-                  Payment may still be processing. Check your M-Pesa messages.
+                  We are still confirming this payment — do not pay twice. Refresh in a few minutes; if you were charged and nothing appears, contact us.
+                </p>
+              )}
+              {pollingStatus === "failed" && (
+                <p className="text-center text-xs text-red-400 mt-3">
+                  {failureMessage || "The payment was not completed. You have not been charged."}
                 </p>
               )}
             </motion.div>
