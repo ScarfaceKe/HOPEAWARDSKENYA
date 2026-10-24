@@ -9,6 +9,7 @@
     "start": "NODE_ENV=production node dist/index.cjs",
     "check": "tsc",
     "test": "tsx --tsconfig tests/tsconfig.json --test --test-concurrency=1 tests/*.test.ts tests/*.test.tsx",
+    "e2e": "tsx scripts/e2e-production.ts",
     "db:push": "drizzle-kit push"
   },
   "dependencies": {

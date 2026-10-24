@@ -991,15 +991,29 @@ export async function registerRoutes(
       const paid = settlement === "paid";
       const failed = settlement === "failed";
 
+      // M-Pesa's own codes, translated into something a fan can act on. Code 17
+      // is the receiving shortcode (MegaPay's paybill) refusing the transaction —
+      // a merchant-side problem, not the fan's balance.
+      const REASON_BY_CODE: Record<string, string> = {
+        "1": "M-Pesa says this number's balance is too low for this payment.",
+        "17": "MegaPay's paying shortcode could not process this one (M-Pesa code 17). Nothing was charged — try again in a moment, or try a smaller amount.",
+        "1019": "The M-Pesa prompt expired before it was approved — nothing was charged.",
+        "1032": "You cancelled the M-Pesa prompt — nothing was charged.",
+        "1037": "The M-Pesa prompt timed out before it was approved — nothing was charged. Try again and enter your PIN promptly.",
+        "2001": "Wrong M-Pesa PIN — nothing was charged.",
+      };
+
       const value: GatewayStatus = {
         paid,
         failed,
         amountMismatch: paid && amount !== null && amount !== order.amountKes,
-        reason: /cancel/.test(statusText)
-          ? "The M-Pesa request was cancelled on your phone — you have not been charged."
-          : failed
-            ? "The M-Pesa payment was declined — you have not been charged."
-            : String(data.ResultDesc ?? data.errorMessage ?? ""),
+        reason:
+          REASON_BY_CODE[code] ??
+          (/cancel/.test(statusText)
+            ? "The M-Pesa request was cancelled on your phone — you have not been charged."
+            : failed
+              ? "The M-Pesa payment did not go through — you have not been charged."
+              : String(data.ResultDesc ?? data.errorMessage ?? "")),
         amount,
       };
 
@@ -1305,9 +1319,12 @@ export async function registerRoutes(
       }
 
       if (gateway?.failed) {
+        // Keep the order so repeated polls keep reporting the same failure (a
+        // deleted order would answer 404 on the next poll and the voter would be
+        // told to keep waiting). The background sweep clears it within minutes.
         return res.json({
           status: "failed",
-          message: gateway.reason || "The M-Pesa payment was cancelled or declined. You have not been charged.",
+          message: gateway.reason || "The M-Pesa payment did not go through. You have not been charged.",
         });
       }
 
@@ -1441,6 +1458,27 @@ export async function registerRoutes(
       // A payment that settles and is then reversed must lose its vote: the fan
       // saw "vote added", and Safaricom took the money back a minute later.
       if (settlement === "failed") {
+        // Only MegaPay may say a *credited* payment was reversed. This endpoint is
+        // unauthenticated, so a body-only "failed" must never delete a vote —
+        // anyone who knows a reference could otherwise wipe one.
+        const reversal = alreadyCredited.gatewayRequestId
+          ? await fetchGatewayStatus({
+              reference,
+              gatewayRequestId: alreadyCredited.gatewayRequestId,
+              amountKes: alreadyCredited.amountKes,
+            })
+          : null;
+
+        if (!reversal?.failed) {
+          recordAlertThrottled(
+            "warning",
+            "payment.forged_reversal",
+            "A callback claimed a reversal that MegaPay does not confirm — the vote was kept",
+            { reference, ip: callbackIp },
+          );
+          return res.status(200).json({ status: "already_recorded" });
+        }
+
         const voided = await storage.voidVoteByReference(reference).catch((err) => {
           console.error(`[MEGAPAY CALLBACK] Could not void reversed vote ${reference}:`, err);
           return undefined;
@@ -1533,6 +1571,36 @@ export async function registerRoutes(
             { reference, votes: pending.votesAdded, amountKes: pending.amountKes },
           );
           return res.status(200).json({ status: "rejected" });
+        }
+
+        // Never trust the callback body on its own. The callback can be reached
+        // by anyone (it is exempt from CSRF, and MegaPay may not send a secret),
+        // so a forged body with a made-up receipt must not buy votes. Only the
+        // gateway can confirm the money arrived, and an order without a gateway
+        // id cannot be confirmed at all — leave it for a human.
+        if (!pending.gatewayRequestId) {
+          recordAlertThrottled(
+            "warning",
+            "payment.callback_unverifiable_order",
+            "A callback tried to credit an order with no gateway transaction id — left for review",
+            { reference, ip: callbackIp },
+          );
+          return res.status(200).json({ status: "awaiting_settlement" });
+        }
+
+        const gateway = await fetchGatewayStatus({
+          reference,
+          gatewayRequestId: pending.gatewayRequestId,
+          amountKes: pending.amountKes,
+        });
+        if (gateway?.failed) {
+          return res.status(200).json({ status: "failed" });
+        }
+        if (!gateway?.paid) {
+          console.log(
+            `[MEGAPAY CALLBACK] Body claimed success but MegaPay has not settled ${reference} — waiting`,
+          );
+          return res.status(200).json({ status: "awaiting_settlement" });
         }
 
         const voterPhone = req.body.Msisdn || req.body.msisdn || req.body.phone || pending.voterPhone;
@@ -1787,17 +1855,54 @@ export async function registerRoutes(
       return res.json({ status: "already_recorded", vote: existing });
     }
 
-    const pending = (await storage.getAllPendingPayments()).find(p => p.reference === reference);
+    const pending = await storage.getPendingPayment(reference);
     if (!pending) return res.status(404).json({ message: "Pending payment not found" });
 
+    // Never force a vote from the admin panel without the gateway's word: a
+    // failed payment would otherwise be credited by hand.
+    if (!pending.gatewayRequestId) {
+      return res.status(409).json({
+        message:
+          "This order predates payment verification, so it cannot be confirmed automatically. Check the M-Pesa statement; if the money did arrive, add the votes from the Votes tab.",
+      });
+    }
+
+    const gateway = await fetchGatewayStatus({
+      reference,
+      gatewayRequestId: pending.gatewayRequestId,
+      amountKes: pending.amountKes,
+    });
+
+    if (gateway?.failed) {
+      await storage.deletePendingPayment(reference).catch(() => {});
+      recordAlert(
+        "warning",
+        "admin.recovery_refused",
+        "A stuck payment was cleared because MegaPay reports it failed",
+        { reference, artistId: pending.artistId, amountKes: pending.amountKes, ip: requestIp(req) },
+      );
+      return res.status(409).json({ message: gateway.reason || "MegaPay reports this payment failed — no vote recorded." });
+    }
+
+    if (gateway?.amountMismatch) {
+      return res.status(409).json({
+        message: `MegaPay reports a completed payment of ${gateway.amount} KES, but this order was for ${pending.amountKes} KES. Check the M-Pesa statement before adding votes by hand.`,
+      });
+    }
+
+    if (!gateway?.paid) {
+      return res.status(409).json({
+        message: "MegaPay has not confirmed this payment yet. Nothing to recover.",
+      });
+    }
+
     try {
-      // MegaPay handles payment verification via callback
-      // This endpoint just manually records the vote if payment was successful
       const vote = await storage.createVoteForce({
         artistId: pending.artistId,
         votesAdded: pending.votesAdded,
         amountKes: pending.amountKes,
         paystackReference: reference,
+        gatewayRequestId: pending.gatewayRequestId,
         voterPhone: pending.voterPhone,
       });
       await storage.deletePendingPayment(reference);
@@ -1905,6 +2010,11 @@ export async function registerRoutes(
             gatewayRequestId: p.gatewayRequestId ?? null,
             amountKes: p.amountKes,
           });
+          if (gateway?.failed) {
+            await storage.deletePendingPayment(p.reference).catch(() => {});
+            console.log(`[RECOVERY] Cleared a failed order: ref=${p.reference}`);
+            continue;
+          }
           if (gateway?.paid && !gateway.amountMismatch && Date.now() <= VOTING_END) {
             const credited = await creditPendingOrder(p, "background-reconcile");
             console.log(

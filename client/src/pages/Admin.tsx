@@ -1885,7 +1885,9 @@ export default function Admin() {
                   <h3 className="font-display text-lg text-amber-400">STUCK PAYMENTS ({pendingPayments.length})</h3>
                 </div>
                 <p className="text-xs text-amber-300/70 mb-5">
-                  These payments were made but votes were not recorded — money was deducted. Click <strong>RECOVER</strong> to verify with Paystack and record the vote. Click <strong>DISMISS</strong> if the payment was not actually successful.
+                  Orders that never produced a vote. <strong>RECOVER</strong> asks MegaPay first: a paid order is
+                  credited, a failed one is cleared without a vote, and an unconfirmed one is left alone. Orders
+                  from before verification was added must be checked against your M-Pesa statement.
                 </p>
                 <div className="space-y-3">
                   {pendingPayments.map((p: any) => {
