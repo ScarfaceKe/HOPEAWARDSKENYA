@@ -2,8 +2,8 @@ import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { Trophy, Crown, Star, ArrowLeft, Sparkles } from "lucide-react";
 import { Link } from "wouter";
-import { CATEGORIES } from "@shared/schema";
 import type { ArtistResponse } from "@shared/routes";
+import { useCategories } from "@/hooks/use-categories";
 import logoImg from "/images/logo.png";
 
 const groupColors: Record<string, string> = {
@@ -21,9 +21,10 @@ export default function HallOfFame() {
   const { data: allArtists = [], isLoading } = useQuery<ArtistResponse[]>({
     queryKey: ["/api/artists"],
   });
+  const { categories } = useCategories();
 
   const winnersByCategory: Record<string, ArtistResponse | undefined> = {};
-  for (const cat of CATEGORIES) {
+  for (const cat of categories) {
     const inCat = allArtists
       .filter((a) => a.category === cat.id)
       .sort((a, b) => (b.totalVotes ?? 0) - (a.totalVotes ?? 0));
@@ -32,7 +33,7 @@ export default function HallOfFame() {
     }
   }
 
-  const groups = Array.from(new Set(CATEGORIES.map((c) => c.group)));
+  const groups = Array.from(new Set(categories.map((c) => c.group)));
 
   return (
     <div className="min-h-screen bg-grid-pattern">
@@ -101,7 +102,7 @@ export default function HallOfFame() {
             </div>
           ) : (
             groups.map((group, gi) => {
-              const cats = CATEGORIES.filter((c) => c.group === group);
+              const cats = categories.filter((c) => c.group === group);
               const winners = cats.filter((c) => winnersByCategory[c.id]);
               if (winners.length === 0) return null;
               const gradient = groupColors[group as string] || "from-gray-400 to-gray-600";

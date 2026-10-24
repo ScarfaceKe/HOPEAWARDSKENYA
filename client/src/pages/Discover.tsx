@@ -4,9 +4,9 @@ import { motion } from "framer-motion";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Search, X, Sparkles, Loader2, Trophy, MapPin, Send, ArrowUpRight } from "lucide-react";
 import type { ArtistResponse } from "@shared/routes";
-import { CATEGORIES } from "@shared/schema";
 import { DISCOVERY_TAGS } from "@shared/categoryContent";
 import { ArtistCard } from "@/components/ArtistCard";
+import { useCategories } from "@/hooks/use-categories";
 
 type DiscoverArtist = ArtistResponse & {
   categoryName: string;
@@ -20,8 +20,6 @@ type DiscoverResponse = {
   newest: DiscoverArtist[];
   newThisWeekCount: number;
 };
-
-const GROUPS = Array.from(new Set(CATEGORIES.map((c) => c.group as string)));
 
 function shortCategoryName(name: string) {
   return (
@@ -39,6 +37,8 @@ async function fetchDiscover(params: URLSearchParams): Promise<DiscoverResponse>
 }
 
 export default function Discover() {
+  const { categories } = useCategories();
+  const groups = Array.from(new Set(categories.map((c) => c.group)));
   const search = useSearch();
   const initial = useMemo(() => new URLSearchParams(search), [search]);
 
@@ -106,7 +106,7 @@ export default function Discover() {
               Who are you backing?
             </h1>
             <p className="text-muted-foreground text-lg mt-4 max-w-2xl">
-              Search {CATEGORIES.length} categories by name, genre or award, or filter by region and language —
+              Search {categories.length} categories by name, genre or award, or filter by region and language —
               then vote for your favourite in a few taps.
             </p>
           </motion.div>
@@ -181,7 +181,7 @@ export default function Discover() {
                 <option value="" className="bg-black">
                   All award groups
                 </option>
-                {GROUPS.map((g) => (
+                {groups.map((g) => (
                   <option key={g} value={g} className="bg-black">
                     {g}
                   </option>

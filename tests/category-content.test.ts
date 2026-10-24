@@ -9,7 +9,7 @@ import {
   categorySummary,
   categoryTags,
 } from "../shared/categoryContent";
-import { CATEGORIES, CATEGORY_CAP } from "../shared/schema";
+import { CATEGORIES, CATEGORY_CAP, isSongCategory } from "../shared/schema";
 import { VOTE_PRICE_KES } from "../shared/site";
 
 test("every category has intro copy, and no two share it", () => {
@@ -69,4 +69,16 @@ test("categories without a region tag simply have none (no empty strings)", () =
       assert.ok(DISCOVERY_TAGS.some((t) => t.id === tag), `${category.id} has unknown tag ${tag}`);
     }
   }
+});
+
+test("a category an admin adds later is usable without hand-written copy", () => {
+  // Categories now live in the database, so these helpers must handle an id
+  // that is not in the build-time list instead of crashing or inventing text.
+  const added = "best-gospel-song-of-the-year-2026";
+  assert.equal(isSongCategory(added), true, "a song category added in the panel still asks for a song title");
+  assert.equal(isSongCategory("best-gospel-choir-2026"), false);
+  assert.equal(categorySummary(added), "", "no paragraph is better than an empty one the rule cannot fill");
+  assert.equal(categoryMetaDescription(added), "");
+  assert.deepEqual(categoryTags(added), []);
+  assert.equal(isSongCategory("female-songwriter-of-the-year-2026"), false);
 });

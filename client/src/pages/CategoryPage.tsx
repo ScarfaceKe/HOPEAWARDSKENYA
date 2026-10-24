@@ -3,7 +3,7 @@ import { useArtists } from "@/hooks/use-artists";
 import { ArtistCard } from "@/components/ArtistCard";
 import { motion } from "framer-motion";
 import { ArrowLeft, Trophy, Loader2, CheckCircle2 } from "lucide-react";
-import { CATEGORIES } from "@shared/schema";
+import { useCategories } from "@/hooks/use-categories";
 import { categorySummary } from "@shared/categoryContent";
 import { useVotingStatus } from "@/hooks/use-voting-status";
 import { useEffect, useState, useRef } from "react";
@@ -56,7 +56,9 @@ export default function CategoryPage() {
   const [voteSuccess, setVoteSuccess] = useState<VoteSuccess | null>(null);
   const verifyingRef = useRef(false);
 
-  const category = CATEGORIES.find(c => c.id === categoryId);
+  const { getCategory } = useCategories();
+  const category = getCategory(categoryId);
+  const categorySummaryText = category ? categorySummary(category.id) : "";
   const { data: artists, isLoading } = useArtists(categoryId);
   const sortedArtists = artists ? [...artists] : [];
 
@@ -234,13 +236,17 @@ export default function CategoryPage() {
               </div>
             </div>
 
-            {/* Per-category intro: unique copy for fans and for search engines. */}
-            <p
-              className="text-muted-foreground leading-relaxed max-w-3xl mt-2"
-              data-testid="text-category-intro"
-            >
-              {categorySummary(category.id)}
-            </p>
+            {/* Per-category intro: unique copy for fans and for search engines.
+                A category an admin added has no hand-written copy yet, so the
+                paragraph is left out instead of rendering an empty block. */}
+            {categorySummaryText && (
+              <p
+                className="text-muted-foreground leading-relaxed max-w-3xl mt-2"
+                data-testid="text-category-intro"
+              >
+                {categorySummaryText}
+              </p>
+            )}
           </motion.div>
         </div>
       </section>

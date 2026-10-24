@@ -3,6 +3,8 @@ import {
   artists,
   votes,
   requests,
+  categories,
+  type AwardCategory,
   uploadedImages,
   pendingPayments,
   adminAuditLog,
@@ -17,7 +19,7 @@ import {
   type PendingPayment,
   CATEGORY_CAP,
 } from "@shared/schema";
-import { eq, sql, lt, inArray, desc } from "drizzle-orm";
+import { eq, sql, lt, inArray, desc, asc } from "drizzle-orm";
 import { VOTING_START, VOTING_END } from "@shared/dates";
 
 // Re-exported so existing server imports (`import { CATEGORY_CAP } from "./storage"`)
@@ -27,6 +29,13 @@ export { CATEGORY_CAP };
 export { VOTING_START, VOTING_END };
 
 export interface IStorage {
+  /** Every award category, in display order. The table is the live list. */
+  listCategories(): Promise<AwardCategory[]>;
+  getCategory(id: string): Promise<AwardCategory | undefined>;
+  createCategory(input: { id: string; name: string; group: string }): Promise<AwardCategory>;
+  deleteCategory(id: string): Promise<void>;
+  /** Nominees and nominations still pointing at a category, used to block deletes. */
+  countNomineesInCategory(id: string): Promise<{ artists: number; requests: number }>;
   getArtists(): Promise<ArtistResponse[]>;
   getArtistsByCategory(category: string): Promise<ArtistResponse[]>;
   getArtist(id: number): Promise<ArtistResponse | undefined>;
@@ -74,6 +83,48 @@ export interface AdminActionInput {
 }
 
 export class DatabaseStorage implements IStorage {
+  async listCategories(): Promise<AwardCategory[]> {
+    return await db
+      .select()
+      .from(categories)
+      .orderBy(asc(categories.displayOrder), asc(categories.name));
+  }
+
+  async getCategory(id: string): Promise<AwardCategory | undefined> {
+    const [row] = await db.select().from(categories).where(eq(categories.id, id));
+    return row;
+  }
+
+  async createCategory(input: { id: string; name: string; group: string }): Promise<AwardCategory> {
+    const [{ nextOrder }] = await db
+      .select({ nextOrder: sql<number>`COALESCE(MAX(${categories.displayOrder}), -1) + 1` })
+      .from(categories);
+    const [row] = await db
+      .insert(categories)
+      .values({ ...input, displayOrder: Number(nextOrder) || 0 })
+      .returning();
+    return row;
+  }
+
+  async deleteCategory(id: string): Promise<void> {
+    await db.delete(categories).where(eq(categories.id, id));
+  }
+
+  async countNomineesInCategory(id: string): Promise<{ artists: number; requests: number }> {
+    const [published] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(artists)
+      .where(eq(artists.category, id));
+    const [nominations] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(requests)
+      .where(eq(requests.category, id));
+    return {
+      artists: Number(published?.count ?? 0),
+      requests: Number(nominations?.count ?? 0),
+    };
+  }
+
   async getArtists(): Promise<ArtistResponse[]> {
     return await db.select().from(artists);
   }

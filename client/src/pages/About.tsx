@@ -1,7 +1,7 @@
 import { Link } from "wouter";
 import { Trophy, Send, Vote, Users, MapPin, Music2, HeartHandshake } from "lucide-react";
 import { LegalLayout } from "@/components/LegalLayout";
-import { CATEGORIES } from "@shared/schema";
+import { useCategories } from "@/hooks/use-categories";
 import { VOTING_OPEN_TEXT, VOTING_CLOSE_TEXT, AWARDS_VENUE, AWARDS_DATE } from "@shared/dates";
 import {
   EDITION,
@@ -17,7 +17,7 @@ const SECTIONS = [
   { id: "what-we-are", label: "What the awards are" },
   { id: "why-hope", label: "Why “Hope”" },
   { id: "who-we-celebrate", label: "Who we celebrate" },
-  { id: "categories", label: "78 categories" },
+  { id: "categories", label: "Award categories" },
   { id: "regions", label: "Regions & languages" },
   { id: "how-it-works", label: "How it works" },
   { id: "voting", label: "How voting works" },
@@ -38,7 +38,8 @@ const GROUP_NOTES: { group: string; note: string }[] = [
 ];
 
 export default function About() {
-  const groupCount = new Set(CATEGORIES.map((c) => c.group)).size;
+  const { categories } = useCategories();
+  const groupCount = new Set(categories.map((c) => c.group)).size;
 
   return (
     <LegalLayout
@@ -59,7 +60,7 @@ export default function About() {
       {/* ── Numbers at a glance ─────────────────────────────────────────── */}
       <div className="not-prose grid grid-cols-2 sm:grid-cols-4 gap-3 mb-10">
         {[
-          { value: `${CATEGORIES.length}`, label: "Categories", sub: `across ${groupCount} groups` },
+          { value: `${categories.length}`, label: "Categories", sub: `across ${groupCount} groups` },
           { value: "10 KES", label: "Per vote", sub: "paid by M-Pesa" },
           { value: "3rd", label: "Edition", sub: "2026 season" },
           { value: "9", label: "Nominee spots", sub: "per category" },
@@ -130,9 +131,9 @@ export default function About() {
       </section>
 
       <section id="categories" className="scroll-mt-28">
-        <h2>{CATEGORIES.length} categories, {groupCount} groups</h2>
+        <h2>{categories.length} categories, {groupCount} groups</h2>
         <p>
-          The {EDITION} runs <strong>{CATEGORIES.length} award categories</strong>, organised into{" "}
+          The {EDITION} runs <strong>{categories.length} award categories</strong>, organised into{" "}
           {groupCount} groups so fans can find their corner of the industry quickly. Song and artist categories stay
           separate on purpose: a song award goes to the record, an artist award goes to the person.
         </p>
@@ -328,7 +329,7 @@ export default function About() {
         <h3>At a glance</h3>
         <ul>
           <li>
-            <Music2 className="inline w-4 h-4 text-primary" /> {CATEGORIES.length} award categories across {groupCount}{" "}
+            <Music2 className="inline w-4 h-4 text-primary" /> {categories.length} award categories across {groupCount}{" "}
             groups
           </li>
           <li>

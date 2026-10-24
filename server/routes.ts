@@ -8,7 +8,7 @@ import { pool } from "./db";
 import { storage, CATEGORY_CAP, VOTING_START, VOTING_END } from "./storage";
 import { apiCache, imgCache, TTL_API, TTL_IMG } from "./cache";
 import { api } from "@shared/routes";
-import { insertRequestSchema, CATEGORIES, type ArtistResponse } from "@shared/schema";
+import { insertRequestSchema, CATEGORIES, type ArtistResponse, type AwardCategoryOption } from "@shared/schema";
 import { DISCOVERY_TAGS, categoriesWithTag, type DiscoveryTagId } from "@shared/categoryContent";
 import { PENDING_PAYMENT_RETENTION_DAYS } from "@shared/site";
 import { z } from "zod";
@@ -84,10 +84,45 @@ function sanitizeCsvCell(value: any): string {
   return s;
 }
 
-function suggestAlternatives(currentCategoryId: string, capacity: Record<string, number>): { id: string; name: string; remaining: number }[] {
-  const current = CATEGORIES.find((c) => c.id === currentCategoryId);
+/**
+ * The live category list. The `categories` table is the source of truth; the
+ * build-time list is only a fallback for a database hiccup, so a category an
+ * admin added still exists even if the table cannot be read.
+ */
+async function loadCategories(): Promise<AwardCategoryOption[]> {
+  try {
+    const rows = await storage.listCategories();
+    if (rows.length > 0) return rows.map(({ id, name, group }) => ({ id, name, group }));
+  } catch (err) {
+    console.error("[categories] Falling back to the built-in list:", err);
+  }
+  return CATEGORIES.map(({ id, name, group }) => ({ id, name, group }));
+}
+
+async function categoryExists(categoryId: string): Promise<boolean> {
+  const list = await loadCategories();
+  return list.some((c) => c.id === categoryId);
+}
+
+/** "Best Gospel Song 2026" → "best-gospel-song-2026". */
+function categorySlug(name: string): string {
+  return name
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60)
+    .replace(/-+$/g, "");
+}
+
+function suggestAlternatives(
+  currentCategoryId: string,
+  capacity: Record<string, number>,
+  categoryList: AwardCategoryOption[],
+): { id: string; name: string; remaining: number }[] {
+  const current = categoryList.find((c) => c.id === currentCategoryId);
   if (!current) return [];
-  const available = CATEGORIES
+  const available = categoryList
     .filter((c) => c.id !== currentCategoryId && (capacity[c.id] || 0) < CATEGORY_CAP)
     .map((c) => ({ id: c.id, name: c.name, group: c.group, remaining: CATEGORY_CAP - (capacity[c.id] || 0) }));
   const sameGroup = available.filter((c) => c.group === current.group).sort((a, b) => b.remaining - a.remaining);
@@ -189,7 +224,7 @@ export async function registerRoutes(
       push(`${base}/about`, "0.7", "monthly");
       push(`${base}/terms`, "0.5", "monthly");
       push(`${base}/privacy`, "0.5", "monthly");
-      for (const c of CATEGORIES) {
+      for (const c of await loadCategories()) {
         push(`${base}/category/${c.id}`, "0.8", "daily");
       }
       try {
@@ -494,7 +529,8 @@ export async function registerRoutes(
     if (tag && !DISCOVERY_TAGS.some((t) => t.id === tag)) {
       return res.status(400).json({ message: "Unknown filter" });
     }
-    const groupNames = new Set<string>(CATEGORIES.map((c) => c.group as string));
+    const categoryList = await loadCategories();
+    const groupNames = new Set<string>(categoryList.map((c) => c.group as string));
     if (group && !groupNames.has(group)) {
       return res.status(400).json({ message: "Unknown award group" });
     }
@@ -506,7 +542,7 @@ export async function registerRoutes(
       apiCache.set("artists:public", pool, TTL_API);
     }
 
-    const categoryById = new Map<string, (typeof CATEGORIES)[number]>(CATEGORIES.map((c) => [c.id as string, c] as const));
+    const categoryById = new Map<string, AwardCategoryOption>(categoryList.map((c) => [c.id, c] as const));
     const allowedCategories = tag ? new Set<string>(categoriesWithTag(tag as DiscoveryTagId)) : null;
     const now = Date.now();
 
@@ -575,6 +611,9 @@ export async function registerRoutes(
   app.post(api.artists.create.path, requireAdmin, async (req, res) => {
     try {
       const input = api.artists.create.input.parse(req.body);
+      if (!(await categoryExists(input.category))) {
+        return res.status(400).json({ message: "Invalid category", field: "category" });
+      }
       const approvedCount = await storage.countApprovedByCategory(input.category);
       if (approvedCount >= CATEGORY_CAP) {
         return res.status(409).json({
@@ -597,6 +636,93 @@ export async function registerRoutes(
     }
   });
 
+  // ── Award categories ────────────────────────────────────────────────────
+  // The public list the whole site renders, including any category an admin
+  // added. Cached briefly so a burst of visitors does not hit the table.
+  app.get("/api/categories", async (_req, res) => {
+    const cached = apiCache.get<AwardCategoryOption[]>("categories");
+    if (cached) {
+      res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=120");
+      return res.json(cached);
+    }
+    const result = await loadCategories();
+    apiCache.set("categories", result, TTL_API);
+    res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=120");
+    res.json(result);
+  });
+
+  app.post("/api/admin/categories", requireAdmin, async (req, res) => {
+    const body = (req.body ?? {}) as { name?: unknown; group?: unknown };
+    const name = typeof body.name === "string" ? body.name.trim().replace(/\s+/g, " ") : "";
+    const group =
+      typeof body.group === "string" && body.group.trim() ? body.group.trim().replace(/\s+/g, " ") : "";
+
+    if (name.length < 3 || name.length > 120) {
+      return res.status(400).json({
+        message: "Give the category a name between 3 and 120 characters.",
+        field: "name",
+      });
+    }
+    if (group.length < 2 || group.length > 60) {
+      return res.status(400).json({
+        message: "Give the award group a name between 2 and 60 characters.",
+        field: "group",
+      });
+    }
+
+    const id = categorySlug(name);
+    if (id.length < 3) {
+      return res.status(400).json({
+        message: "That name needs at least one letter or number.",
+        field: "name",
+      });
+    }
+
+    const existing = await storage.getCategory(id).catch(() => undefined);
+    if (existing) {
+      return res.status(409).json({
+        message: `"${existing.name}" already exists. Pick a different name.`,
+        field: "name",
+      });
+    }
+
+    try {
+      const created = await storage.createCategory({ id, name, group });
+      apiCache.clear();
+      audit(req, "create", "category", created.id, `Added award category ${created.name} (${created.group})`);
+      res.status(201).json(created);
+    } catch (err: any) {
+      // 23505 = unique violation: two admins saved the same name at once.
+      if (err?.code === "23505") {
+        return res.status(409).json({ message: "That category already exists.", field: "name" });
+      }
+      throw err;
+    }
+  });
+
+  app.delete("/api/admin/categories/:id", requireAdmin, async (req, res) => {
+    const id = String(req.params.id);
+    const category = await storage.getCategory(id).catch(() => undefined);
+    if (!category) {
+      return res.status(404).json({ message: "Category not found" });
+    }
+
+    const counts = await storage.countNomineesInCategory(id);
+    if (counts.artists > 0 || counts.requests > 0) {
+      const parts: string[] = [];
+      if (counts.artists > 0) parts.push(`${counts.artists} live nominee${counts.artists === 1 ? "" : "s"}`);
+      if (counts.requests > 0) parts.push(`${counts.requests} nomination${counts.requests === 1 ? "" : "s"}`);
+      return res.status(409).json({
+        message: `“${category.name}” still holds ${parts.join(" and ")}. Move them to another category first.`,
+      });
+    }
+
+    await storage.deleteCategory(id);
+    apiCache.clear();
+    audit(req, "delete", "category", id, `Deleted award category ${category.name}`);
+    res.json({ success: true });
+  });
+
   app.get("/api/categories/capacity", async (_req, res) => {
     const cached = apiCache.get<any>("capacity");
     if (cached) {
@@ -604,7 +730,7 @@ export async function registerRoutes(
       return res.json(cached);
     }
     const counts = await storage.countAllApprovedByCategory();
-    const result = CATEGORIES.map((c) => ({
+    const result = (await loadCategories()).map((c) => ({
       id: c.id,
       name: c.name,
       group: c.group,
@@ -1078,6 +1204,9 @@ export async function registerRoutes(
   app.post("/api/requests", async (req, res) => {
     try {
       const input = insertRequestSchema.parse(req.body);
+      if (!(await categoryExists(input.category))) {
+        return res.status(400).json({ message: "Invalid category", field: "category" });
+      }
       const phoneDigits = (input.submitterPhone || "").replace(/\D/g, "");
       if (phoneDigits.length < 7 || phoneDigits.length > 15) {
         return res.status(400).json({
@@ -1091,7 +1220,7 @@ export async function registerRoutes(
 
       if (isFull) {
         const capacity = await storage.countAllApprovedByCategory();
-        const suggested = suggestAlternatives(input.category, capacity);
+        const suggested = suggestAlternatives(input.category, capacity, await loadCategories());
         const request = await storage.createRequest(input, "waitlist");
         return res.status(202).json({
           request,
@@ -1137,7 +1266,8 @@ export async function registerRoutes(
   app.get("/api/requests/export.csv", requireAdmin, async (_req, res) => {
     const allRows = await storage.getRequests();
     const rows = allRows.filter(r => r.status === "approved");
-    const catName = (id: string) => CATEGORIES.find(c => c.id === id)?.name || id;
+    const categoryNames = new Map((await loadCategories()).map((c) => [c.id, c.name] as const));
+    const catName = (id: string) => categoryNames.get(id) || id;
     const esc = (v: any) => {
       const s = sanitizeCsvCell(v);
       return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
@@ -1240,8 +1370,7 @@ export async function registerRoutes(
     }
 
     if (category !== undefined) {
-      const isValidCategory = CATEGORIES.some((c) => c.id === category);
-      if (!isValidCategory) {
+      if (!(await categoryExists(String(category)))) {
         return res.status(400).json({ message: "Invalid category" });
       }
       // Fetch current request so we can (a) honor the cap correctly, (b) move the artist row if approved.

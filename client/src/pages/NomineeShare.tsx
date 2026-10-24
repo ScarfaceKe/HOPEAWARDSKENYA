@@ -4,7 +4,8 @@ import { motion } from "framer-motion";
 import { Trophy, ArrowRight, Calendar, Copy, Check, Sparkles } from "lucide-react";
 import { SiWhatsapp } from "react-icons/si";
 import { useState } from "react";
-import { CATEGORIES, isSongCategory } from "@shared/schema";
+import { isSongCategory } from "@shared/schema";
+import { useCategories } from "@/hooks/use-categories";
 import { useVotingStatus, AWARDS_DATE } from "@/hooks/use-voting-status";
 
 type PublicRequest = {
@@ -20,6 +21,7 @@ export default function NomineeShare() {
   const id = params?.id;
   const [copied, setCopied] = useState(false);
   const { votingOpen, votingClosed } = useVotingStatus();
+  const { getCategory } = useCategories();
 
   const { data, isLoading, isError } = useQuery<PublicRequest>({
     queryKey: ["/api/requests", id, "public"],
@@ -54,8 +56,7 @@ export default function NomineeShare() {
     );
   }
 
-  const cat = CATEGORIES.find((c) => c.id === data.category);
-  const categoryName = cat?.name || data.category;
+  const categoryName = getCategory(data.category)?.name || data.category;
   const isSong = isSongCategory(data.category);
   const subject = isSong ? `the song "${data.name}"` : data.name;
   const shareUrl = typeof window !== "undefined" ? `${window.location.origin}/n/${data.id}` : `/n/${data.id}`;

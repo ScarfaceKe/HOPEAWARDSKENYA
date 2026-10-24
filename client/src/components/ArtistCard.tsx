@@ -4,7 +4,7 @@ import { Lock, ChevronLeft, Zap, Share2, Check } from "lucide-react";
 import type { ArtistResponse } from "@shared/routes";
 import { VoteDialog } from "./VoteDialog";
 import { useVotingStatus } from "@/hooks/use-voting-status";
-import { CATEGORIES } from "@shared/schema";
+import { useCategories } from "@/hooks/use-categories";
 
 interface ArtistCardProps {
   artist: ArtistResponse;
@@ -15,10 +15,11 @@ export function ArtistCard({ artist }: ArtistCardProps) {
   const [justVoted, setJustVoted] = useState(false);
   const [copied, setCopied] = useState(false);
   const { votingOpen, votingPre } = useVotingStatus();
+  const { getCategory } = useCategories();
 
   const artistUrl = `${window.location.origin}/artist/${artist.id}`;
-  const fullCatForShare = CATEGORIES.find((c: any) => c.id === artist.category)?.name || "";
-  const waShareMsg = encodeURIComponent(`🎵 Vote for ${artist.name} - ${fullCatForShare} at Hope Awards Kenya 2026!\n\n👉 ${artistUrl}\n\n1 Vote = 10 KES via M-Pesa. Awards night date TBA. #HopeAwardsKenya`);
+  const fullCategoryName = getCategory(artist.category)?.name || "";
+  const waShareMsg = encodeURIComponent(`🎵 Vote for ${artist.name} - ${fullCategoryName} at Hope Awards Kenya 2026!\n\n👉 ${artistUrl}\n\n1 Vote = 10 KES via M-Pesa. Awards night date TBA. #HopeAwardsKenya`);
 
   const handleShare = async () => {
     if (navigator.share) {
@@ -32,7 +33,6 @@ export function ArtistCard({ artist }: ArtistCardProps) {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const fullCategoryName = CATEGORIES.find((c: any) => c.id === artist.category)?.name || "";
   const shortCategory = fullCategoryName
     .replace(/\s+of the Year\s+2026\s*$/i, "")
     .replace(/\s+2026\s*$/i, "")

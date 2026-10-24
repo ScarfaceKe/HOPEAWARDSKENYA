@@ -3,10 +3,11 @@ import { useLocation, useSearch } from "wouter";
 import { useCreateArtist } from "@/hooks/use-artists";
 import { useToast } from "@/hooks/use-toast";
 import { motion } from "framer-motion";
-import { ShieldAlert, ShieldCheck, KeyRound, Activity, Plus, Mic2, Image as ImageIcon, Lock, LogOut, Check, X, Inbox, Search, Trash2, Upload, Users, AlertTriangle, Download, BarChart2, Shuffle, Pencil, Loader2 } from "lucide-react";
-import { CATEGORIES, CATEGORY_CAP } from "@shared/schema";
+import { ShieldAlert, ShieldCheck, KeyRound, Activity, Plus, Mic2, Image as ImageIcon, Lock, LogOut, Check, X, Inbox, Search, Trash2, Upload, Users, AlertTriangle, Download, BarChart2, Shuffle, Pencil, Loader2, Tags } from "lucide-react";
+import { CATEGORY_CAP } from "@shared/schema";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, csrfFetch } from "@/lib/queryClient";
+import { useCategories } from "@/hooks/use-categories";
 import { setCsrfToken, csrfHeaders, getCsrfToken } from "@/lib/csrf";
 import { approvalFailure } from "@/lib/approvalError";
 
@@ -196,10 +197,13 @@ export default function Admin() {
   const params = new URLSearchParams(search);
   const presetCategory = params.get("category") || "";
   const queryClient = useQueryClient();
+  // Live category list: includes every category an admin has added, and feeds
+  // the nomination dropdowns, the filters and the category manager below.
+  const { categories, categoryName } = useCategories();
 
   const [isAuthed, setIsAuthed] = useState(false);
   const [checking, setChecking] = useState(true);
-  const [activeTab, setActiveTab] = useState<"add" | "requests" | "waitlist" | "approved" | "delete" | "votes" | "security">("add");
+  const [activeTab, setActiveTab] = useState<"add" | "categories" | "requests" | "waitlist" | "approved" | "delete" | "votes" | "security">("add");
   const [approvedSearch, setApprovedSearch] = useState("");
   const [approvedCategory, setApprovedCategory] = useState("");
   const [uploadMode, setUploadMode] = useState<"url" | "file">("url");
@@ -226,6 +230,22 @@ export default function Admin() {
   const [votesSearch, setVotesSearch] = useState("");
   const [votesCategory, setVotesCategory] = useState("");
   const [addAmounts, setAddAmounts] = useState<Record<number, string>>({});
+
+  // ── Category manager state ──
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const [newCategoryGroup, setNewCategoryGroup] = useState("");
+  const [creatingCategory, setCreatingCategory] = useState(false);
+  const [deletingCategory, setDeletingCategory] = useState<string | null>(null);
+
+  // Same slug rule as the server, so the panel can show the real page address
+  // before the category is saved.
+  const newCategorySlug = newCategoryName
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60)
+    .replace(/-+$/g, "");
 
   useEffect(() => {
     fetch("/api/admin/check", { credentials: "include" })
@@ -275,7 +295,7 @@ export default function Admin() {
     name: "",
     genre: "",
     imageUrl: "",
-    category: presetCategory || CATEGORIES[0].id,
+    category: presetCategory || categories[0]?.id || "",
     bio: "",
   });
 
@@ -589,6 +609,70 @@ export default function Admin() {
     setIsAuthed(false);
   };
 
+  const refreshCategories = () => {
+    queryClient.invalidateQueries({ queryKey: ["/api/categories"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/categories/capacity"] });
+  };
+
+  const handleCreateCategory = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (creatingCategory) return;
+    setCreatingCategory(true);
+    try {
+      const res = await csrfFetch("/api/admin/categories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newCategoryName, group: newCategoryGroup }),
+        credentials: "include",
+      });
+      const body = (await res.json().catch(() => null)) as { name?: string; message?: string } | null;
+      if (!res.ok) throw new Error(body?.message || "Could not add the category.");
+
+      setNewCategoryName("");
+      setNewCategoryGroup("");
+      refreshCategories();
+      toast({
+        title: "CATEGORY ADDED",
+        description: `${body?.name || "The category"} is live in every nomination form and admin dropdown. Approve two nominees in it and it appears on the home page.`,
+        className: "bg-secondary/90 text-black border-none font-display",
+      });
+    } catch (err: any) {
+      toast({
+        title: "COULD NOT ADD CATEGORY",
+        description: err?.message || "Check the connection and try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setCreatingCategory(false);
+    }
+  };
+
+  const handleDeleteCategory = async (id: string, name: string) => {
+    if (!window.confirm(`Delete "${name}"? Nominees must be moved off it first. This cannot be undone.`)) return;
+    setDeletingCategory(id);
+    try {
+      const res = await csrfFetch(`/api/admin/categories/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      const body = (await res.json().catch(() => null)) as { message?: string } | null;
+      if (!res.ok) throw new Error(body?.message || "Could not delete the category.");
+
+      refreshCategories();
+      toast({ title: "CATEGORY DELETED", description: `${name} is no longer listed anywhere on the site.` });
+    } catch (err: any) {
+      toast({
+        title: "COULD NOT DELETE CATEGORY",
+        description: err?.message || "Check the connection and try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setDeletingCategory(null);
+    }
+  };
+
+  const categoryGroups = Array.from(new Set(categories.map((c) => c.group)));
+
   const handleApproveRequest = (req: any) => {
     createArtist(
       { name: req.name, genre: req.genre || "—", imageUrl: req.imageUrl, category: req.category },
@@ -600,7 +684,7 @@ export default function Admin() {
           queryClient.invalidateQueries({ queryKey: ["/api/artists"] });
         },
         onError: (err: any) => {
-          const catName = CATEGORIES.find(c => c.id === req.category)?.name || req.category;
+          const catName = categoryName(req.category);
           const { title, description } = approvalFailure(err, catName);
           toast({ title, description, variant: "destructive" });
         },
@@ -744,6 +828,16 @@ export default function Admin() {
             VOTES
           </button>
           <button
+            onClick={() => setActiveTab("categories")}
+            data-testid="tab-categories"
+            className={`px-6 py-3 rounded-xl font-display text-sm tracking-wider transition-all ${
+              activeTab === "categories" ? "bg-primary text-black" : "bg-white/5 text-muted-foreground hover:bg-white/10"
+            }`}
+          >
+            <Tags className="w-4 h-4 inline mr-2" />
+            CATEGORIES
+          </button>
+          <button
             onClick={() => setActiveTab("security")}
             data-testid="tab-security"
             className={`px-6 py-3 rounded-xl font-display text-sm tracking-wider transition-all relative ${
@@ -763,6 +857,140 @@ export default function Admin() {
           </button>
         </div>
 
+        {activeTab === "categories" && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="space-y-6"
+          >
+            {/* ── Add a category ── */}
+            <div className="bg-card border border-white/10 rounded-2xl p-8 md:p-10 shadow-2xl">
+              <div className="flex items-center gap-3 mb-2">
+                <div className="w-10 h-10 rounded-xl bg-primary/15 border border-primary/30 flex items-center justify-center">
+                  <Tags className="w-5 h-5 text-primary" />
+                </div>
+                <div>
+                  <h2 className="font-display text-2xl text-white tracking-wide">ADD A CATEGORY</h2>
+                  <p className="text-sm text-muted-foreground">It goes live as soon as you save it — no redeploy.</p>
+                </div>
+              </div>
+
+              <p className="text-sm text-muted-foreground mb-6 leading-relaxed">
+                A new category is usable straight away: it appears on the nomination form, in every admin dropdown, on
+                the discover page and at its own public page. The home page lists it once two nominees are approved in it.
+              </p>
+
+              <form onSubmit={handleCreateCategory} className="space-y-5">
+                <div className="grid md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label htmlFor="new-category-name" className="text-xs font-bold text-muted-foreground uppercase tracking-widest">
+                      Category name
+                    </label>
+                    <input
+                      id="new-category-name"
+                      required
+                      value={newCategoryName}
+                      onChange={(e) => setNewCategoryName(e.target.value)}
+                      data-testid="input-new-category-name"
+                      placeholder="e.g. Best Gospel Song of the Year 2026"
+                      maxLength={120}
+                      className="w-full bg-black/50 border border-white/10 rounded-xl py-3 px-4 text-white placeholder:text-white/25 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all font-bold"
+                    />
+                    <p className="text-[11px] text-muted-foreground">
+                      Public page:{" "}
+                      <span className="font-mono text-primary">/category/{newCategorySlug || "…"}</span>
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label htmlFor="new-category-group" className="text-xs font-bold text-muted-foreground uppercase tracking-widest">
+                      Award group
+                    </label>
+                    <input
+                      id="new-category-group"
+                      required
+                      list="award-groups"
+                      value={newCategoryGroup}
+                      onChange={(e) => setNewCategoryGroup(e.target.value)}
+                      data-testid="input-new-category-group"
+                      placeholder={categoryGroups[0] || "Main Awards"}
+                      maxLength={60}
+                      className="w-full bg-black/50 border border-white/10 rounded-xl py-3 px-4 text-white placeholder:text-white/25 focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary transition-all font-bold"
+                    />
+                    <datalist id="award-groups">
+                      {categoryGroups.map((group) => (
+                        <option key={group} value={group} />
+                      ))}
+                    </datalist>
+                    <p className="text-[11px] text-muted-foreground">
+                      Pick an existing group, or type a new one to create a new section on the home page.
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={creatingCategory || !newCategoryName.trim() || !newCategoryGroup.trim()}
+                  data-testid="button-create-category"
+                  className={`px-6 py-3 rounded-xl font-display text-sm tracking-wider transition-all ${
+                    creatingCategory || !newCategoryName.trim() || !newCategoryGroup.trim()
+                      ? "bg-white/5 text-white/30 cursor-not-allowed"
+                      : "bg-primary text-black hover:bg-primary/90 active:scale-95"
+                  }`}
+                >
+                  {creatingCategory ? "ADDING…" : "+ ADD CATEGORY"}
+                </button>
+              </form>
+            </div>
+
+            {/* ── Existing categories ── */}
+            <div className="bg-card border border-white/10 rounded-2xl p-8 md:p-10">
+              <div className="flex items-center justify-between gap-4 mb-4">
+                <h2 className="font-display text-xl text-white tracking-wide">
+                  ALL CATEGORIES <span className="text-muted-foreground">({categories.length})</span>
+                </h2>
+                <p className="text-[11px] text-muted-foreground uppercase tracking-widest font-bold">
+                  {categoryGroups.length} groups
+                </p>
+              </div>
+
+              <ul className="divide-y divide-white/5">
+                {categories.map((cat) => {
+                  const cap = capMap.get(cat.id);
+                  return (
+                    <li key={cat.id} className="flex items-center gap-3 py-3" data-testid={`category-row-${cat.id}`}>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-white font-bold leading-snug truncate">{cat.name}</p>
+                        <p className="text-[11px] text-muted-foreground truncate">
+                          {cat.group} · /category/{cat.id}
+                          {cap ? ` · ${cap.approved}/${cap.cap} nominees` : ""}
+                        </p>
+                      </div>
+                      <a
+                        href={`/category/${cat.id}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="px-3 py-1.5 rounded-lg text-[11px] font-bold uppercase tracking-wider bg-white/5 border border-white/10 text-muted-foreground hover:text-white hover:bg-white/10 transition-colors shrink-0"
+                      >
+                        View
+                      </a>
+                      <button
+                        onClick={() => handleDeleteCategory(cat.id, cat.name)}
+                        disabled={deletingCategory === cat.id}
+                        data-testid={`button-delete-category-${cat.id}`}
+                        title="Delete this category (nominees must be moved first)"
+                        className="w-9 h-9 rounded-lg flex items-center justify-center bg-red-500/10 border border-red-500/25 text-red-400 hover:bg-red-500/20 transition-colors shrink-0 disabled:opacity-40"
+                      >
+                        {deletingCategory === cat.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          </motion.div>
+        )}
+
         {activeTab === "add" && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -780,7 +1008,7 @@ export default function Admin() {
                     data-testid="select-category"
                     className="w-full bg-black/50 border border-white/10 rounded-xl py-4 px-5 text-white focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all font-bold text-lg appearance-none cursor-pointer"
                   >
-                    {CATEGORIES.map((cat) => (
+                    {categories.map((cat) => (
                       <option key={cat.id} value={cat.id} className="bg-black text-white">{cat.name}</option>
                     ))}
                   </select>
@@ -935,7 +1163,7 @@ export default function Admin() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <h3 className="font-display text-xl text-white">{req.name}</h3>
-                      <p className="text-xs text-primary font-bold mt-1">{CATEGORIES.find((c) => c.id === req.category)?.name}</p>
+                      <p className="text-xs text-primary font-bold mt-1">{categoryName(req.category)}</p>
                       {cap && (
                         <p className={`text-xs mt-1 font-bold ${isFull ? "text-red-400" : "text-muted-foreground"}`}>
                           {isFull ? `⚠ Category FULL (${cap.approved}/${cap.cap})` : `${cap.approved}/${cap.cap} spots filled`}
@@ -957,7 +1185,7 @@ export default function Admin() {
                         className="px-3 py-2 bg-accent/10 text-accent border border-accent/30 rounded-xl text-xs font-bold cursor-pointer focus:outline-none focus:border-accent transition-all w-full"
                       >
                         <option value="" className="bg-black">⇄ MOVE TO CATEGORY…</option>
-                        {CATEGORIES.filter((c) => c.id !== req.category).map((c) => {
+                        {categories.filter((c) => c.id !== req.category).map((c) => {
                           const cc = capMap.get(c.id);
                           const full = cc?.isFull;
                           return (
@@ -1018,7 +1246,7 @@ export default function Admin() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <h3 className="font-display text-xl text-white">{req.name}</h3>
-                      <p className="text-xs text-amber-400 font-bold mt-1">Tried: {CATEGORIES.find((c) => c.id === req.category)?.name}</p>
+                      <p className="text-xs text-amber-400 font-bold mt-1">Tried: {categoryName(req.category)}</p>
                       {cap && (
                         <p className={`text-xs mt-1 font-bold ${hasRoomNow ? "text-secondary" : "text-red-400"}`}>
                           {hasRoomNow ? `✓ ${cap.cap - cap.approved} spot(s) open now — you can promote!` : `Category still full (${cap.approved}/${cap.cap})`}
@@ -1047,7 +1275,7 @@ export default function Admin() {
                         className="px-3 py-2 bg-accent/10 text-accent border border-accent/30 rounded-xl text-xs font-bold cursor-pointer focus:outline-none focus:border-accent transition-all w-full"
                       >
                         <option value="" className="bg-black">⇄ MOVE TO CATEGORY…</option>
-                        {CATEGORIES.filter((c) => c.id !== req.category).map((c) => {
+                        {categories.filter((c) => c.id !== req.category).map((c) => {
                           const cc = capMap.get(c.id);
                           const full = cc?.isFull;
                           return (
@@ -1105,7 +1333,7 @@ export default function Admin() {
                 className="bg-black/50 border border-white/10 rounded-xl py-3 px-4 text-white focus:outline-none focus:border-secondary transition-all font-bold appearance-none cursor-pointer"
               >
                 <option value="" className="bg-black">All Categories</option>
-                {CATEGORIES.map((cat) => (
+                {categories.map((cat) => (
                   <option key={cat.id} value={cat.id} className="bg-black">{cat.name}</option>
                 ))}
               </select>
@@ -1150,7 +1378,7 @@ export default function Admin() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <h3 className="font-display text-xl text-white">{req.name}</h3>
-                      <p className="text-xs text-secondary font-bold mt-1">✓ LIVE in: {CATEGORIES.find((c) => c.id === req.category)?.name}</p>
+                      <p className="text-xs text-secondary font-bold mt-1">✓ LIVE in: {categoryName(req.category)}</p>
                       {cap && (
                         <p className="text-xs text-muted-foreground mt-1">{cap.approved}/{cap.cap} spots filled in this category</p>
                       )}
@@ -1191,7 +1419,7 @@ export default function Admin() {
                         className="px-3 py-2 bg-accent/10 text-accent border border-accent/30 rounded-xl text-xs font-bold cursor-pointer focus:outline-none focus:border-accent transition-all w-full"
                       >
                         <option value="" className="bg-black">⇄ MOVE TO CATEGORY…</option>
-                        {CATEGORIES.filter((c) => c.id !== req.category).map((c) => {
+                        {categories.filter((c) => c.id !== req.category).map((c) => {
                           const cc = capMap.get(c.id);
                           const full = cc?.isFull;
                           return (
@@ -1230,7 +1458,7 @@ export default function Admin() {
                   className="bg-black/50 border border-white/10 rounded-xl py-3 px-4 text-white focus:outline-none focus:border-red-400 transition-all font-bold appearance-none cursor-pointer"
                 >
                   <option value="" className="bg-black">All Categories</option>
-                  {CATEGORIES.map((cat) => (
+                  {categories.map((cat) => (
                     <option key={cat.id} value={cat.id} className="bg-black">{cat.name}</option>
                   ))}
                 </select>
@@ -1286,7 +1514,7 @@ export default function Admin() {
                           </div>
                           <div className="flex-1 min-w-0">
                             <h4 className="font-display text-lg text-white truncate">{artist.name}</h4>
-                            <p className="text-xs text-primary font-bold truncate">{CATEGORIES.find(c => c.id === artist.category)?.name}</p>
+                            <p className="text-xs text-primary font-bold truncate">{categoryName(artist.category)}</p>
                             <p className="text-xs text-muted-foreground mt-0.5">{artist.totalVotes} {artist.totalVotes === 1 ? "vote" : "votes"}</p>
                             {artist.bio && !isEditingBio && !isEditingArtist && (
                               <p className="text-xs text-white/40 mt-1 truncate italic">{artist.bio}</p>
@@ -1516,7 +1744,7 @@ export default function Admin() {
                   className="bg-black/50 border border-white/10 rounded-xl py-3 px-4 text-white focus:outline-none focus:border-primary transition-all font-bold appearance-none cursor-pointer"
                 >
                   <option value="" className="bg-black">All Categories</option>
-                  {CATEGORIES.map((cat) => (
+                  {categories.map((cat) => (
                     <option key={cat.id} value={cat.id} className="bg-black">{cat.name}</option>
                   ))}
                 </select>
@@ -1552,7 +1780,7 @@ export default function Admin() {
                 return (
                   <div className="space-y-3">
                     {filtered.map((artist: any, idx: number) => {
-                      const catName = CATEGORIES.find((c) => c.id === artist.category)?.name || artist.category;
+                      const catName = categoryName(artist.category);
                       const addVal = addAmounts[artist.id] ?? "";
                       const addNum = parseInt(addVal, 10);
                       const canAdd = Number.isInteger(addNum) && addNum > 0;
@@ -1604,7 +1832,7 @@ export default function Admin() {
                 <div className="space-y-3">
                   {pendingPayments.map((p: any) => {
                     const artist = allArtists.find((a: any) => a.id === p.artistId);
-                    const catName = CATEGORIES.find((c) => c.id === artist?.category)?.name || artist?.category || "Unknown";
+                    const catName = artist?.category ? categoryName(artist.category) : "Unknown";
                     return (
                       <div key={p.reference} className="flex flex-col sm:flex-row sm:items-center gap-3 bg-black/40 border border-amber-500/20 rounded-xl p-4">
                         <div className="flex-1 min-w-0">

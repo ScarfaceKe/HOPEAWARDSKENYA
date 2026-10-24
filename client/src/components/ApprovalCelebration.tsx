@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Trophy, Sparkles, ArrowRight, X, Copy, Check, Calendar } from "lucide-react";
 import { SiWhatsapp } from "react-icons/si";
 import confetti from "canvas-confetti";
-import { CATEGORIES } from "@shared/schema";
+import { useCategories } from "@/hooks/use-categories";
 import { useVotingStatus, AWARDS_DATE } from "@/hooks/use-voting-status";
 
 type MyStatusItem = {
@@ -77,6 +77,7 @@ export function ApprovalCelebration() {
   const [active, setActive] = useState<MyStatusItem | null>(null);
   const [copied, setCopied] = useState(false);
   const { votingPre, votingOpen, votingClosed } = useVotingStatus();
+  const { categoryName: nameOfCategory } = useCategories();
 
   useEffect(() => {
     if (!active && pending.length > 0) {
@@ -96,7 +97,7 @@ export function ApprovalCelebration() {
 
   if (!active) return null;
 
-  const categoryName = CATEGORIES.find((c) => c.id === active.category)?.name || active.category;
+  const categoryName = nameOfCategory(active.category);
   const profileHref = active.artistId
     ? `/artist/${active.artistId}`
     : `/n/${active.requestId}`;

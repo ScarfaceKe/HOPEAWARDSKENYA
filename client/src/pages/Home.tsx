@@ -1,7 +1,7 @@
 import { Link, useLocation } from "wouter";
 import { motion } from "framer-motion";
 import { Trophy, ArrowRight, ArrowUpRight, Crown, Disc3, Mic2, Star, Users, Music2, Heart, Radio, Sparkles, Copy, CheckCheck, Tv, Video, Camera, Film, Scissors, Wand2, Palette, Flame, Globe, MapPin, Zap, BookOpen, PartyPopper, CalendarDays, Laugh, Headphones, Guitar, Piano, Vote, Send, Smartphone, ShieldCheck, Ticket, Search } from "lucide-react";
-import { CATEGORIES } from "@shared/schema";
+
 import { Countdown } from "@/components/Countdown";
 import { useVotingStatus } from "@/hooks/use-voting-status";
 import logoImg from "/images/logo.png";
@@ -182,7 +182,7 @@ export default function Home() {
   const { phase } = useVotingStatus();
   const [, navigate] = useLocation();
   const [nomineeQuery, setNomineeQuery] = useState("");
-  const { data: capacityData } = useQuery<Array<{ id: string; approved: number }>>({
+  const { data: capacityData } = useQuery<Array<{ id: string; name: string; group: string; approved: number }>>({
     queryKey: ["/api/categories/capacity"],
     staleTime: 60000,
   });
@@ -192,10 +192,12 @@ export default function Home() {
       categoryCounts[item.id] = item.approved;
     }
   }
-  // A category goes public once at least two nominees are approved in it.
+  // A category goes public once at least two nominees are approved in it. The
+  // capacity endpoint is the live category list (including any an admin added),
+  // so the grid follows the database without a redeploy.
   const CATEGORY_PUBLIC_THRESHOLD = 2;
   const activeCategories = capacityData
-    ? CATEGORIES.filter((c: any) => (categoryCounts[c.id] ?? 0) >= CATEGORY_PUBLIC_THRESHOLD)
+    ? capacityData.filter((c) => c.approved >= CATEGORY_PUBLIC_THRESHOLD)
     : [];
 
   const heroBadge = phase === "pre"

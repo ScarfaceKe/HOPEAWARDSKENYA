@@ -2,7 +2,7 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Phone, Search, CheckCircle2, Loader2, Trophy, Link as LinkIcon } from "lucide-react";
 import { Link } from "wouter";
-import { CATEGORIES } from "@shared/schema";
+import { useCategories } from "@/hooks/use-categories";
 
 interface VoteEntry {
   id: number;
@@ -19,6 +19,7 @@ export default function CheckMyVotes() {
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<VoteEntry[] | null>(null);
   const [searched, setSearched] = useState(false);
+  const { categoryName } = useCategories();
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -118,7 +119,7 @@ export default function CheckMyVotes() {
 
                   <div className="space-y-3">
                     {results.map((v) => {
-                      const catName = CATEGORIES.find((c) => c.id === v.artistCategory)?.name || v.artistCategory;
+                      const catName = categoryName(v.artistCategory);
                       const date = new Date(v.createdAt);
                       const dateStr = date.toLocaleDateString("en-KE", { day: "numeric", month: "short", year: "numeric" });
                       const timeStr = date.toLocaleTimeString("en-KE", { hour: "2-digit", minute: "2-digit" });

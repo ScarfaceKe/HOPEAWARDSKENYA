@@ -1,5 +1,5 @@
 import { storage } from "./storage";
-import { CATEGORIES } from "../shared/schema";
+import { CATEGORIES, isSongCategory } from "../shared/schema";
 import { categoryMetaDescription } from "@shared/categoryContent";
 import { VOTING_START, VOTING_END, AWARDS_DATE } from "@shared/dates";
 
@@ -53,6 +53,19 @@ function imageMimeFromUrl(url: string): string {
   return "image/jpeg";
 }
 
+/**
+ * Category names for preview cards. Read from the table so a category an admin
+ * added gets a proper name in a shared link instead of its slug; the build-time
+ * list is the fallback if the table cannot be read.
+ */
+async function ogCategories(): Promise<{ id: string; name: string; group: string }[]> {
+  try {
+    const rows = await storage.listCategories();
+    if (rows.length > 0) return rows.map(({ id, name, group }) => ({ id, name, group }));
+  } catch {}
+  return CATEGORIES.map(({ id, name, group }) => ({ id, name, group }));
+}
+
 export async function getOgOverrideForUrl(url: string): Promise<OgOverride | null> {
   try {
     const path = url.split("?")[0].split("#")[0];
@@ -75,7 +88,7 @@ export async function getOgOverrideForUrl(url: string): Promise<OgOverride | nul
 
     const cm = path.match(/^\/category\/([a-z0-9-]+)\/?$/);
     if (cm) {
-      const cat = CATEGORIES.find((c) => c.id === cm[1]);
+      const cat = (await ogCategories()).find((c) => c.id === cm[1]);
       if (!cat) return null;
       const image = `${SITE_ORIGIN}/og-image.jpg`;
       const phase = currentPhase();
@@ -137,9 +150,9 @@ export async function getOgOverrideForUrl(url: string): Promise<OgOverride | nul
       if (Number.isNaN(reqId)) return null;
       const r = await storage.getRequest(reqId);
       if (!r || r.status !== "approved") return null;
-      const cat = CATEGORIES.find((c) => c.id === r.category);
+      const cat = (await ogCategories()).find((c) => c.id === r.category);
       const categoryName = cat?.name || r.category;
-      const isSong = cat ? /\bsong\b/i.test(cat.name) && !/songwriter/i.test(cat.name) : false;
+      const isSong = isSongCategory(r.category);
       const image = r.imageUrl?.startsWith("http")
         ? r.imageUrl
         : `${SITE_ORIGIN}${r.imageUrl?.startsWith("/") ? "" : "/"}${r.imageUrl || "og-image.jpg"}`;
@@ -175,7 +188,7 @@ export async function getOgOverrideForUrl(url: string): Promise<OgOverride | nul
     if (Number.isNaN(id)) return null;
     const artist = await storage.getArtist(id);
     if (!artist) return null;
-    const categoryName = CATEGORIES.find((c) => c.id === artist.category)?.name || artist.category;
+    const categoryName = (await ogCategories()).find((c) => c.id === artist.category)?.name || artist.category;
     const image = artist.imageUrl?.startsWith("http")
       ? artist.imageUrl
       : `${SITE_ORIGIN}${artist.imageUrl?.startsWith("/") ? "" : "/"}${artist.imageUrl || "og-image.jpg"}`;

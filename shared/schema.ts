@@ -90,11 +90,39 @@ export const CATEGORIES = [
  */
 export const CATEGORY_CAP = 9;
 
+/**
+ * The award categories an admin can add at runtime.
+ *
+ * `CATEGORIES` above started as the only source of truth and is now the seed
+ * for this table plus the offline fallback the client renders before the live
+ * list arrives. Nomination, voting and every category listing read the table,
+ * so a category added in the admin panel is a first-class category everywhere.
+ */
+export const categories = pgTable("categories", {
+  /** URL-safe slug, e.g. "kamba-song". Derived from the name when created. */
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  /** Award group shown as a section heading, e.g. "Main Awards". */
+  group: text("group_name").notNull(),
+  displayOrder: integer("display_order").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export type AwardCategory = typeof categories.$inferSelect;
+/** The three fields every screen needs; what `/api/categories` returns. */
+export type AwardCategoryOption = Pick<AwardCategory, "id" | "name" | "group">;
+
 export type CategoryId = typeof CATEGORIES[number]["id"];
 
 export function isSongCategory(categoryId: string): boolean {
   const cat = CATEGORIES.find((c) => c.id === categoryId);
-  if (!cat) return false;
+  if (!cat) {
+    // A category an admin added after this build has no entry above, and its id
+    // is derived from a name like "Best Gospel Song 2026", so the same test
+    // works on the slug.
+    if (/songwriter/.test(categoryId)) return false;
+    return /(^|-|_)songs?(-|_|$)/.test(categoryId);
+  }
   if (/songwriter/i.test(cat.name)) return false;
   return /\bsong\b/i.test(cat.name);
 }
@@ -118,8 +146,10 @@ export const insertArtistSchema = createInsertSchema(artists).omit({
   displayOrder: true,
   createdAt: true,
 }).refine(
-  (a) => CATEGORIES.some((c) => c.id === a.category),
-  { message: "Invalid category", path: ["category"] },
+  // Existence is checked against the `categories` table by the route: the static
+  // list no longer contains every category an admin may have added.
+  (a) => a.category.trim().length > 0,
+  { message: "Choose a category", path: ["category"] },
 );
 
 export const votes = pgTable("votes", {
@@ -153,8 +183,9 @@ export const insertRequestSchema = createInsertSchema(requests).omit({
   status: true,
   createdAt: true,
 }).refine(
-  (r) => CATEGORIES.some((c) => c.id === r.category),
-  { message: "Invalid category", path: ["category"] },
+  // See insertArtistSchema: the route checks the category against the table.
+  (r) => r.category.trim().length > 0,
+  { message: "Choose a category", path: ["category"] },
 );
 
 export type Artist = typeof artists.$inferSelect;

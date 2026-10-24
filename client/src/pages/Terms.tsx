@@ -1,7 +1,7 @@
 import { Link } from "wouter";
 import { Info } from "lucide-react";
 import { LegalLayout } from "@/components/LegalLayout";
-import { CATEGORIES, CATEGORY_CAP } from "@shared/schema";
+import { CATEGORY_CAP } from "@shared/schema";
 import { VOTING_OPEN_TEXT, VOTING_CLOSE_TEXT, AWARDS_VENUE, AWARDS_DATE } from "@shared/dates";
 import {
   EDITION,
@@ -121,8 +121,8 @@ export default function Terms() {
         </p>
         <p>
           <strong>Every entry is reviewed.</strong> We may approve it, move it to the correct category, waitlist it, or
-          decline it (duplicate, impersonation, unusable image, or an entry we cannot verify). Each of the{" "}
-          {CATEGORIES.length} categories publishes at most <strong>{CATEGORY_CAP} approved nominees</strong>; once a
+          decline it (duplicate, impersonation, unusable image, or an entry we cannot verify). Each category
+          publishes at most <strong>{CATEGORY_CAP} approved nominees</strong>; once a
           category is full, further entries are waitlisted and offered other categories. Display order may be randomised
           — no payment buys a position.
         </p>

@@ -4,7 +4,7 @@ import { useState } from "react";
 import { VoteDialog } from "@/components/VoteDialog";
 import { motion } from "framer-motion";
 import { ArrowLeft, Flame, Share2, Loader2, Lock, Trophy, ChevronLeft, Zap } from "lucide-react";
-import { CATEGORIES } from "@shared/schema";
+import { useCategories } from "@/hooks/use-categories";
 import { useVotingStatus, AWARDS_DATE } from "@/hooks/use-voting-status";
 
 export default function ArtistDetail() {
@@ -16,6 +16,7 @@ export default function ArtistDetail() {
   const [isVoteOpen, setIsVoteOpen] = useState(false);
   const [justVoted, setJustVoted] = useState(false);
   const { votingOpen, votingPre, votingClosed } = useVotingStatus();
+  const { categoryName: nameOfCategory } = useCategories();
 
   if (isLoading) {
     return (
@@ -40,7 +41,7 @@ export default function ArtistDetail() {
     );
   }
 
-  const categoryName = CATEGORIES.find(c => c.id === artist.category)?.name || artist.category;
+  const categoryName = nameOfCategory(artist.category);
 
   return (
     <div className="min-h-screen bg-background pb-24">

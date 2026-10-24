@@ -1,4 +1,5 @@
 import { pool } from "./db";
+import { CATEGORIES } from "@shared/schema";
 
 export async function runMigrations() {
   const client = await pool.connect();
@@ -61,6 +62,16 @@ export async function runMigrations() {
     `);
 
     await client.query(`
+      CREATE TABLE IF NOT EXISTS categories (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        group_name TEXT NOT NULL,
+        display_order INTEGER NOT NULL DEFAULT 0,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+    `);
+
+    await client.query(`
       CREATE TABLE IF NOT EXISTS admin_audit_log (
         id SERIAL PRIMARY KEY,
         action TEXT NOT NULL,
@@ -71,6 +82,22 @@ export async function runMigrations() {
         created_at TIMESTAMP NOT NULL DEFAULT NOW()
       );
     `);
+
+    // Seed the built-in categories exactly once. Seeding only when the table is
+    // empty means a restart never resurrects a category an admin deleted, and an
+    // edit to this list never overwrites the live table.
+    const seeded = await client.query(`SELECT COUNT(*)::int AS count FROM categories`);
+    if (Number(seeded.rows[0]?.count ?? 0) === 0) {
+      for (const [index, category] of CATEGORIES.entries()) {
+        await client.query(
+          `INSERT INTO categories (id, name, group_name, display_order)
+           VALUES ($1, $2, $3, $4)
+           ON CONFLICT (id) DO NOTHING`,
+          [category.id, category.name, category.group, index],
+        );
+      }
+      console.log(`[migrate] Seeded ${CATEGORIES.length} award categories.`);
+    }
 
     // Create indexes
     await client.query(`

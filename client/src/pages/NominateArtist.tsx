@@ -5,7 +5,8 @@ import { useToast } from "@/hooks/use-toast";
 import { motion } from "framer-motion";
 import { Send, Mic2, Music2, Image as ImageIcon, Phone, ShieldCheck, Clock, Upload, Loader2, AlertTriangle, ArrowRight, Users, Vote, Trophy, Copy, Check } from "lucide-react";
 import { SiWhatsapp } from "react-icons/si";
-import { CATEGORIES, isSongCategory } from "@shared/schema";
+import { isSongCategory } from "@shared/schema";
+import { useCategories } from "@/hooks/use-categories";
 import { useVotingStatus } from "@/hooks/use-voting-status";
 
 type CategoryCapacity = {
@@ -24,6 +25,7 @@ export default function NominateArtist() {
   const search = useSearch();
   const { toast } = useToast();
   const { votingPre, votingOpen, votingClosed } = useVotingStatus();
+  const { categories, getCategory } = useCategories();
   const [isPending, setIsPending] = useState(false);
   const [submittedStatus, setSubmittedStatus] = useState<null | "pending" | "waitlist">(null);
   const [submittedRequestId, setSubmittedRequestId] = useState<number | null>(null);
@@ -42,7 +44,7 @@ export default function NominateArtist() {
   const capMap = new Map(capacity.map((c) => [c.id, c]));
 
   const presetCategory = new URLSearchParams(search).get("category") || "";
-  const defaultCategory = CATEGORIES.find(c => c.id === presetCategory)?.id ?? "";
+  const defaultCategory = getCategory(presetCategory)?.id ?? "";
 
   const [formData, setFormData] = useState({
     name: "",
@@ -242,7 +244,7 @@ export default function NominateArtist() {
   };
 
   if (submittedStatus === "waitlist") {
-    const triedCategoryName = CATEGORIES.find((c) => c.id === formData.category)?.name || "this category";
+    const triedCategoryName = getCategory(formData.category)?.name || "this category";
     return (
       <div className="min-h-screen bg-grid-pattern flex items-center justify-center px-4 py-24">
         <motion.div
@@ -312,8 +314,7 @@ export default function NominateArtist() {
   }
 
   if (submittedStatus === "pending") {
-    const subCat = CATEGORIES.find((c) => c.id === submittedCategory);
-    const subCategoryName = subCat?.name || submittedCategory;
+    const subCategoryName = getCategory(submittedCategory)?.name || submittedCategory;
     const subIsSong = isSongCategory(submittedCategory);
     const subSubject = subIsSong ? `the song "${submittedName}"` : submittedName;
     const shareUrl = submittedRequestId && typeof window !== "undefined"
@@ -481,7 +482,7 @@ export default function NominateArtist() {
                   <option value="" disabled className="bg-black text-white/60">
                     — Choose category —
                   </option>
-                  {CATEGORIES.map((cat) => {
+                  {categories.map((cat) => {
                     const c = capMap.get(cat.id);
                     const tag = c ? (c.isFull ? "  ▸ FULL — joins waitlist" : `  ▸ ${c.cap - c.approved} spot${c.cap - c.approved === 1 ? "" : "s"} left`) : "";
                     return (
