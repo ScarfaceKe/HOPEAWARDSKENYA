@@ -132,17 +132,31 @@ async function main() {
   }
 
   // ── Callback authentication ─────────────────────────────────────────────
+  const probeRef = `e2e-probe-${Date.now()}`;
   const forged = await req("/api/megapay/callback", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ reference: `e2e-probe-${Date.now()}`, status: "success" }),
+    body: JSON.stringify({ reference: probeRef, status: "success", ResultCode: "0" }),
   });
-  // 401/403 means the callback is protected. 200 means it accepted an
-  // unauthenticated body — it must not have credited anything either way.
+  // 200 only means the door is open; the claim itself must have bought nothing.
+  // That is what the next check proves, so this one stays informational instead
+  // of failing a deployment whose gateway cannot send a callback secret.
+  const { rows: probeVotes } = await pool.query(
+    "select 1 from votes where paystack_reference = $1",
+    [probeRef],
+  );
+  const { rows: probeOrders } = await pool.query(
+    "select 1 from pending_payments where reference = $1",
+    [probeRef],
+  );
   record(
-    "unauthenticated callback cannot claim a payment",
-    [200, 401, 403].includes(forged.status),
-    `HTTP ${forged.status}${forged.status === 200 ? " (callback is open — set MEGAPAY_CALLBACK_SECRET)" : ""}`,
+    "a forged callback records no vote and no order",
+    probeVotes.length === 0 && probeOrders.length === 0,
+    `HTTP ${forged.status} · votes ${probeVotes.length} · orders ${probeOrders.length}${
+      forged.status === 200
+        ? " (callback is open — set MEGAPAY_CALLBACK_SECRET once MegaPay confirms it sends the header)"
+        : ""
+    }`,
   );
 
   // ── The money rule: every vote has a settled receipt ────────────────────

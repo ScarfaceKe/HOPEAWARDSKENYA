@@ -15,7 +15,7 @@ import { z } from "zod";
 import crypto from "crypto";
 import { recordAlert, recordAlertThrottled, getRecentAlerts } from "./alerts";
 import { parseVoteOrder, voteVelocity, maskPhone, normalizeVotePhone } from "./vote-rules";
-import { classifySettlement } from "./payment-proof";
+import { classifySettlement, paymentFailureReason } from "./payment-proof";
 import { issueCsrfToken, requireCsrf } from "./csrf";
 import { verifyTotp, twoFactorEnabled, enrollmentSecret, otpauthUri } from "./totp";
 
@@ -956,16 +956,21 @@ export async function registerRoutes(
     amount: number | null;
   };
 
-  async function fetchGatewayStatus(order: {
-    reference: string;
-    gatewayRequestId: string | null;
-    amountKes: number;
-  }): Promise<GatewayStatus | null> {
+  async function fetchGatewayStatus(
+    order: {
+      reference: string;
+      gatewayRequestId: string | null;
+      amountKes: number;
+    },
+    options: { fresh?: boolean } = {},
+  ): Promise<GatewayStatus | null> {
     const apiKey = process.env.MEGAPAY_API_KEY;
     const email = process.env.MEGAPAY_EMAIL || "";
     if (!apiKey || !email || !order.gatewayRequestId) return null;
 
-    const cached = gatewayStatusCache.get(order.reference);
+    // The cache serves the vote dialog's rapid polling. A security decision — is
+    // this reversal real? — must never be made from a few-seconds-old answer.
+    const cached = options.fresh ? undefined : gatewayStatusCache.get(order.reference);
     if (cached && Date.now() - cached.at < 4000) return cached.value;
 
     try {
@@ -991,24 +996,12 @@ export async function registerRoutes(
       const paid = settlement === "paid";
       const failed = settlement === "failed";
 
-      // M-Pesa's own codes, translated into something a fan can act on. Code 17
-      // is the receiving shortcode (MegaPay's paybill) refusing the transaction —
-      // a merchant-side problem, not the fan's balance.
-      const REASON_BY_CODE: Record<string, string> = {
-        "1": "M-Pesa says this number's balance is too low for this payment.",
-        "17": "MegaPay's paying shortcode could not process this one (M-Pesa code 17). Nothing was charged — try again in a moment, or try a smaller amount.",
-        "1019": "The M-Pesa prompt expired before it was approved — nothing was charged.",
-        "1032": "You cancelled the M-Pesa prompt — nothing was charged.",
-        "1037": "The M-Pesa prompt timed out before it was approved — nothing was charged. Try again and enter your PIN promptly.",
-        "2001": "Wrong M-Pesa PIN — nothing was charged.",
-      };
-
       const value: GatewayStatus = {
         paid,
         failed,
         amountMismatch: paid && amount !== null && amount !== order.amountKes,
         reason:
-          REASON_BY_CODE[code] ??
+          paymentFailureReason(code) ??
           (/cancel/.test(statusText)
             ? "The M-Pesa request was cancelled on your phone — you have not been charged."
             : failed
@@ -1462,11 +1455,14 @@ export async function registerRoutes(
         // unauthenticated, so a body-only "failed" must never delete a vote —
         // anyone who knows a reference could otherwise wipe one.
         const reversal = alreadyCredited.gatewayRequestId
-          ? await fetchGatewayStatus({
-              reference,
-              gatewayRequestId: alreadyCredited.gatewayRequestId,
-              amountKes: alreadyCredited.amountKes,
-            })
+          ? await fetchGatewayStatus(
+              {
+                reference,
+                gatewayRequestId: alreadyCredited.gatewayRequestId,
+                amountKes: alreadyCredited.amountKes,
+              },
+              { fresh: true },
+            )
           : null;
 
         if (!reversal?.failed) {
@@ -1603,14 +1599,11 @@ export async function registerRoutes(
           return res.status(200).json({ status: "awaiting_settlement" });
         }
 
-        const voterPhone = req.body.Msisdn || req.body.msisdn || req.body.phone || pending.voterPhone;
-
+        // The order's phone is authoritative. The callback body is unauthenticated,
+        // so the mismatch (already alerted above) must not overwrite what we stored.
         // Same credit path as the status route, so the two can race without ever
         // crediting the order twice.
-        const credited = await creditPendingOrder(
-          { ...pending, voterPhone: (voterPhone as string | null) ?? pending.voterPhone },
-          "callback",
-        );
+        const credited = await creditPendingOrder(pending, "callback");
         console.log(`[MEGAPAY CALLBACK] Vote recorded: ref=${reference}, artist=${pending.artistId}, votes=${credited.vote.votesAdded}, amount=${pending.amountKes}KES, phone=${maskPhone(String(credited.vote.voterPhone ?? ""))}`);
       } catch (err: any) {
         console.error(`[MEGAPAY CALLBACK CRITICAL] Vote creation failed for ref ${reference}:`, err);
@@ -2040,23 +2033,32 @@ export async function registerRoutes(
   // minute later (which is exactly what a screenshot of "vote added" followed by
   // an M-Pesa reversal looks like). Re-check recently credited votes against the
   // gateway and take the vote back if the money did not stay.
-  const reverifiedReferences = new Set<string>();
+  // A vote is re-checked for its whole first hour, but no more than once every
+  // 10 minutes. A permanent "already verified" set (the previous shape) answered
+  // "paid" once and never looked again, so a reversal that landed after that
+  // answer — the reported 10 KES case, reversed a minute after "vote added" —
+  // was invisible unless MegaPay happened to send a callback.
+  const REVERIFY_COOLDOWN_MS = 10 * 60 * 1000;
+  const lastVerifiedAt = new Map<string, number>();
   async function reconcileRecentVotes() {
     const apiKey = process.env.MEGAPAY_API_KEY;
     if (!apiKey) return;
     try {
       const recent = await storage.getVotesSince(60 * 60 * 1000);
       for (const vote of recent) {
-        if (!vote.gatewayRequestId || reverifiedReferences.has(vote.paystackReference)) continue;
+        if (!vote.gatewayRequestId) continue;
+        const now = Date.now();
+        const last = lastVerifiedAt.get(vote.paystackReference);
+        if (last !== undefined && now - last < REVERIFY_COOLDOWN_MS) continue;
         const status = await fetchGatewayStatus({
           reference: vote.paystackReference,
           gatewayRequestId: vote.gatewayRequestId,
           amountKes: vote.amountKes,
         });
-        // Only stop checking once the gateway has given a definite answer.
+        // No answer is not an answer: try again on the next pass.
         if (!status) continue;
         if (status.failed) {
-          reverifiedReferences.add(vote.paystackReference);
+          lastVerifiedAt.delete(vote.paystackReference);
           const voided = await storage.voidVoteByReference(vote.paystackReference).catch(() => undefined);
           if (voided) {
             apiCache.clear();
@@ -2069,10 +2071,10 @@ export async function registerRoutes(
             console.log(`[RECONCILE] Reversed payment — vote voided: ref=${vote.paystackReference}, votes=${vote.votesAdded}`);
           }
         } else if (status.paid) {
-          reverifiedReferences.add(vote.paystackReference);
+          lastVerifiedAt.set(vote.paystackReference, now);
         }
       }
-      if (reverifiedReferences.size > 5000) reverifiedReferences.clear();
+      if (lastVerifiedAt.size > 5000) lastVerifiedAt.clear();
     } catch (err) {
       console.error("[RECONCILE] Recent-vote reconciliation failed:", err);
     }

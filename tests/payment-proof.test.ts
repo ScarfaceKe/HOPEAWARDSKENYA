@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { classifySettlement, isRealReceipt } from "../server/payment-proof";
+import { classifySettlement, isRealReceipt, paymentFailureReason } from "../server/payment-proof";
 
 test("an accepted STK request is not proof of payment", () => {
   // The exact shape MegaPay returns when the prompt is merely accepted. Crediting
@@ -42,6 +42,28 @@ test("N/A is not a receipt", () => {
       TransactionStatus: "Failed",
       TransactionCode: "2035",
       TransactionReceipt: "N/A",
+    }),
+    "failed",
+  );
+});
+
+test("failure codes explain themselves to the fan", () => {
+  assert.match(paymentFailureReason("1032")!, /cancel/i);
+  assert.match(paymentFailureReason("1037")!, /timed out/i);
+  assert.match(paymentFailureReason("2001")!, /PIN/i);
+  assert.match(paymentFailureReason(17)!, /Nothing was charged/);
+  assert.equal(paymentFailureReason("0"), undefined);
+  assert.equal(paymentFailureReason(""), undefined);
+  assert.equal(paymentFailureReason(undefined), undefined);
+
+  // Code 17 is reported as TransactionCode by the status endpoint, with the
+  // request still described as "accepted". Before this was classified, the
+  // dialog polled "waiting for your PIN" forever on a transaction M-Pesa had
+  // already refused.
+  assert.equal(
+    classifySettlement({
+      TransactionCode: "17",
+      ResultDesc: "Success. Request accepted for processing",
     }),
     "failed",
   );

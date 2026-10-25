@@ -25,6 +25,28 @@ const ACCEPTED_TEXT = /accepted for processing|request accepted|being processed/
 const FAILED_STATUS = /cancel|fail|declin|insufficient|timed?\s*out|rejected/i;
 
 /**
+ * M-Pesa result codes that are terminal failures, phrased so a fan knows their
+ * money is safe. Code 17 is the paying shortcode refusing the transaction — a
+ * merchant-side problem, not the fan's balance. Kept pure so the wording is
+ * unit-tested instead of drifting inside the route.
+ */
+const FAILURE_REASONS: Record<string, string> = {
+  "1": "M-Pesa says this number's balance is too low for this payment.",
+  "17": "MegaPay's paying shortcode could not process this one (M-Pesa code 17). Nothing was charged — try again in a moment, or try a smaller amount.",
+  "1019": "The M-Pesa prompt expired before it was approved — nothing was charged.",
+  "1032": "You cancelled the M-Pesa prompt — nothing was charged.",
+  "1037": "The M-Pesa prompt timed out before it was approved — nothing was charged. Try again and enter your PIN promptly.",
+  "2001": "Wrong M-Pesa PIN — nothing was charged.",
+};
+
+/** The fan-facing explanation for a failure code, or undefined if we have none. */
+export function paymentFailureReason(code: unknown): string | undefined {
+  const key =
+    typeof code === "string" ? code.trim() : typeof code === "number" ? String(code) : "";
+  return key ? FAILURE_REASONS[key] : undefined;
+}
+
+/**
  * Classifies a MegaPay callback or transaction-status body.
  *
  * `paid`    — a real receipt or a completed status: the vote is owed.
@@ -53,9 +75,13 @@ export function classifySettlement(body: unknown): Settlement {
   }
 
   // Known M-Pesa failure codes: cancelled by user, timeout, insufficient funds,
-  // wrong PIN.
-  const code = String(b.ResultCode ?? b.ResponseCode ?? b.result_code ?? "");
-  if (["1032", "1037", "2001", "1"].includes(code)) return "failed";
+  // wrong PIN, and code 17 (the paying shortcode refused the transaction).
+  // TransactionCode is included because the status endpoint reports M-Pesa's
+  // code there, not only in ResultCode.
+  const code = String(
+    b.ResultCode ?? b.ResponseCode ?? b.TransactionCode ?? b.result_code ?? b.transaction_code ?? "",
+  );
+  if (["1032", "1037", "2001", "17", "1"].includes(code)) return "failed";
 
   // "Success. Request accepted for processing" and anything without proof: the
   // prompt was accepted, the money has not been confirmed.
