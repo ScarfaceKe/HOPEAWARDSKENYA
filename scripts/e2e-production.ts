@@ -142,7 +142,7 @@ async function main() {
   // That is what the next check proves, so this one stays informational instead
   // of failing a deployment whose gateway cannot send a callback secret.
   const { rows: probeVotes } = await pool.query(
-    "select 1 from votes where paystack_reference = $1",
+    "select 1 from votes where payment_reference = $1",
     [probeRef],
   );
   const { rows: probeOrders } = await pool.query(
@@ -161,7 +161,7 @@ async function main() {
 
   // ── The money rule: every vote has a settled receipt ────────────────────
   const { rows: votes } = await pool.query(
-    "select paystack_reference, artist_id, votes_added, amount_kes, gateway_request_id from votes order by created_at",
+    "select payment_reference, artist_id, votes_added, amount_kes, gateway_request_id from votes order by created_at",
   );
   const apiKey = process.env.MEGAPAY_API_KEY;
   const email = process.env.MEGAPAY_EMAIL;
@@ -188,7 +188,7 @@ async function main() {
       failed += 1;
       console.log(
         JSON.stringify({
-          vote: vote.paystack_reference,
+          vote: vote.payment_reference,
           artist: vote.artist_id,
           votes: vote.votes_added,
           status: data.TransactionStatus,

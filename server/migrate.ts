@@ -23,7 +23,7 @@ export async function runMigrations() {
         artist_id INTEGER NOT NULL,
         amount_kes INTEGER NOT NULL,
         votes_added INTEGER NOT NULL,
-        paystack_reference TEXT NOT NULL,
+        payment_reference TEXT NOT NULL,
         voter_phone TEXT,
         created_at TIMESTAMP DEFAULT NOW()
       );
@@ -105,10 +105,31 @@ export async function runMigrations() {
       console.log(`[migrate] Seeded ${CATEGORIES.length} award categories.`);
     }
 
+    // The votes table once used a previous provider's name for our own order
+    // reference. Rename the column in place so live rows keep their history.
+    await client.query(`
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'votes' AND column_name = 'paystack_reference'
+        ) AND NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'votes' AND column_name = 'payment_reference'
+        ) THEN
+          ALTER TABLE votes RENAME COLUMN paystack_reference TO payment_reference;
+        END IF;
+      END $$;
+    `);
+    await client.query(`
+      ALTER INDEX IF EXISTS votes_paystack_reference_unique
+        RENAME TO votes_payment_reference_unique;
+    `);
+
     // Create indexes
     await client.query(`
-      CREATE UNIQUE INDEX IF NOT EXISTS votes_paystack_reference_unique
-        ON votes (paystack_reference);
+      CREATE UNIQUE INDEX IF NOT EXISTS votes_payment_reference_unique
+        ON votes (payment_reference);
     `);
     await client.query(`
       CREATE INDEX IF NOT EXISTS artists_category_idx
@@ -152,6 +173,16 @@ export async function runMigrations() {
     await client.query(`
       CREATE INDEX IF NOT EXISTS votes_artist_id_idx
         ON votes (artist_id);
+    `);
+    // Every order now shares the collection account number as its reference, so
+    // the gateway's transaction id is the key a callback maps back to an order.
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS votes_gateway_request_id_idx
+        ON votes (gateway_request_id);
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS pending_payments_gateway_request_id_idx
+        ON pending_payments (gateway_request_id);
     `);
     await client.query(`
       CREATE INDEX IF NOT EXISTS pending_payments_created_at_idx

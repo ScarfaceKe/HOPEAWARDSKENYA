@@ -157,7 +157,8 @@ export const votes = pgTable("votes", {
   artistId: integer("artist_id").notNull(),
   amountKes: integer("amount_kes").notNull(),
   votesAdded: integer("votes_added").notNull(),
-  paystackReference: text("paystack_reference").notNull(),
+  /** Our own order reference, echoed back by MegaPay on every status call. */
+  paymentReference: text("payment_reference").notNull(),
   /**
    * MegaPay's transaction id, kept after the vote is credited so a later
    * reversal can be checked against `/backend/v1/transactionstatus`.

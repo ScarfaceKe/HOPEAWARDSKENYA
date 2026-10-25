@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  OUTSTANDING_PROMPT_MS,
   VoteVelocityGuard,
   maskPhone,
   normalizeVotePhone,
@@ -96,6 +97,43 @@ test("blocks a double-tap on the identical order but allows a real retry", () =>
   assert.equal(again.allowed, false);
   if (!again.allowed) assert.match(again.message, /already sent/i);
   assert.equal(guard.check(order, t0 + 40_000).allowed, true);
+});
+
+test("one live prompt per number: a second prompt is refused until the first settles", () => {
+  const guard = new VoteVelocityGuard();
+  const t0 = 1_700_000_000_000;
+  const first = { phone: "254733000001", ip: "3.3.3.3", artistId: 7, votesAdded: 2, amountKes: 20 };
+  assert.equal(guard.check(first, t0).allowed, true);
+  guard.markPromptSent("254733000001", t0);
+
+  // Same amount, different nominee: still only one prompt on the phone.
+  const second = guard.check({ ...first, artistId: 8, votesAdded: 5, amountKes: 50 }, t0 + 30_000);
+  assert.equal(second.allowed, false);
+  if (!second.allowed) {
+    assert.equal(second.status, 429);
+    assert.match(second.message, /still waiting/i);
+  }
+
+  // Other numbers are not affected.
+  assert.equal(guard.check({ ...first, phone: "254733000002" }, t0 + 31_000).allowed, true);
+
+  // Once the order settles, the number can vote again immediately.
+  guard.release("254733000001");
+  assert.equal(guard.check({ ...first, artistId: 9, votesAdded: 1, amountKes: 10 }, t0 + 40_000).allowed, true);
+});
+
+test("a prompt nobody approved stops blocking after OUTSTANDING_PROMPT_MS", () => {
+  const guard = new VoteVelocityGuard();
+  const t0 = 1_700_000_000_000;
+  const order = { phone: "254733000003", ip: "4.4.4.4", artistId: 3, votesAdded: 1, amountKes: 10 };
+  assert.equal(guard.check(order, t0).allowed, true);
+  guard.markPromptSent("254733000003", t0);
+  assert.equal(guard.check({ ...order, artistId: 4 }, t0 + 60_000).allowed, false);
+  assert.equal(
+    guard.check({ ...order, artistId: 5 }, t0 + OUTSTANDING_PROMPT_MS + 1).allowed,
+    true,
+    "an abandoned prompt must not lock the fan out forever",
+  );
 });
 
 test("enforces the daily vote ceiling for a single number", () => {

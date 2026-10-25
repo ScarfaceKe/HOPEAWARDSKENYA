@@ -43,6 +43,8 @@ export interface IStorage {
   deleteArtist(id: number): Promise<void>;
   createVote(vote: InsertVote): Promise<VoteResponse>;
   getVoteByReference(ref: string): Promise<VoteResponse | undefined>;
+  /** Finds the vote by MegaPay's own id — the reference is now the account number. */
+  getVoteByGatewayRequestId(id: string): Promise<VoteResponse | undefined>;
   getVotesSince(withinMs: number): Promise<VoteResponse[]>;
   /** Removes a vote whose payment was reversed, and gives the votes back. */
   voidVoteByReference(ref: string): Promise<VoteResponse | undefined>;
@@ -71,6 +73,7 @@ export interface IStorage {
   createPendingPayment(reference: string, artistId: number, votesAdded: number, amountKes: number, voterPhone: string | null): Promise<void>;
   setPendingGatewayRequestId(reference: string, gatewayRequestId: string): Promise<void>;
   getPendingPayment(reference: string): Promise<PendingPayment | undefined>;
+  getPendingPaymentByGatewayRequestId(id: string): Promise<PendingPayment | undefined>;
   deletePendingPayment(reference: string): Promise<void>;
   getOldPendingPayments(olderThanMs: number): Promise<PendingPayment[]>;
   getAllPendingPayments(): Promise<PendingPayment[]>;
@@ -167,10 +170,10 @@ export class DatabaseStorage implements IStorage {
         vote = inserted;
       } catch (err: any) {
         if (err.code === "23505") {
-          const [existing] = await tx.select().from(votes).where(eq(votes.paystackReference, insertVote.paystackReference));
+          const [existing] = await tx.select().from(votes).where(eq(votes.paymentReference, insertVote.paymentReference));
           return existing;
         }
-        console.error(`[CREATE-VOTE FAILED] ref=${insertVote.paystackReference}, artist=${insertVote.artistId}, votes=${insertVote.votesAdded}, errorCode=${err.code}, errorMessage=${err.message}`);
+        console.error(`[CREATE-VOTE FAILED] ref=${insertVote.paymentReference}, artist=${insertVote.artistId}, votes=${insertVote.votesAdded}, errorCode=${err.code}, errorMessage=${err.message}`);
         throw err;
       }
       await tx.update(artists)
@@ -181,7 +184,12 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getVoteByReference(ref: string): Promise<VoteResponse | undefined> {
-    const [vote] = await db.select().from(votes).where(eq(votes.paystackReference, ref));
+    const [vote] = await db.select().from(votes).where(eq(votes.paymentReference, ref));
+    return vote;
+  }
+
+  async getVoteByGatewayRequestId(id: string): Promise<VoteResponse | undefined> {
+    const [vote] = await db.select().from(votes).where(eq(votes.gatewayRequestId, id));
     return vote;
   }
 
@@ -192,7 +200,7 @@ export class DatabaseStorage implements IStorage {
 
   async voidVoteByReference(ref: string): Promise<VoteResponse | undefined> {
     return await db.transaction(async (tx) => {
-      const [vote] = await tx.select().from(votes).where(eq(votes.paystackReference, ref));
+      const [vote] = await tx.select().from(votes).where(eq(votes.paymentReference, ref));
       if (!vote) return undefined;
       await tx.delete(votes).where(eq(votes.id, vote.id));
       // GREATEST keeps the nominee's tally from going negative if the vote was
@@ -384,7 +392,7 @@ export class DatabaseStorage implements IStorage {
         vote = inserted;
       } catch (err: any) {
         if (err.code === "23505") {
-          const [existing] = await tx.select().from(votes).where(eq(votes.paystackReference, insertVote.paystackReference));
+          const [existing] = await tx.select().from(votes).where(eq(votes.paymentReference, insertVote.paymentReference));
           return existing;
         }
         throw err;
@@ -409,6 +417,19 @@ export class DatabaseStorage implements IStorage {
 
   async getPendingPayment(reference: string): Promise<PendingPayment | undefined> {
     const [row] = await db.select().from(pendingPayments).where(eq(pendingPayments.reference, reference));
+    return row;
+  }
+
+  /**
+   * Looks an order up by MegaPay's transaction id. Every order sends the same
+   * reference (the KCB account number), so this is how a callback or a retried
+   * poll finds the right order.
+   */
+  async getPendingPaymentByGatewayRequestId(id: string): Promise<PendingPayment | undefined> {
+    const [row] = await db
+      .select()
+      .from(pendingPayments)
+      .where(eq(pendingPayments.gatewayRequestId, id));
     return row;
   }
 

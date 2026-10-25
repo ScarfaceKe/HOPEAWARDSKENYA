@@ -22,6 +22,17 @@ export const PHONE_DAILY_VOTE_CAP = 30_000;
 /** Retrying the identical order this fast is a double-tap, not a real retry. */
 export const DUPLICATE_ORDER_WINDOW_MS = 25_000;
 
+/**
+ * How long one number may hold a live (unanswered) M-Pesa prompt.
+ *
+ * Two prompts on the same phone at once is the only way this app can cause a
+ * double debit: the fan approves both, M-Pesa takes the money twice, and the
+ * duplicate can only be undone by the gateway/shortcode owner reversing one.
+ * A fan who votes again *after* a prompt settles is never blocked — the mark is
+ * cleared the moment the order is credited, refused, or reported failed.
+ */
+export const OUTSTANDING_PROMPT_MS = 3 * 60_000;
+
 /** Orders allowed from one IP inside a window. */
 export const IP_INIT_WINDOW_MS = 10 * 60_000;
 export const MAX_IP_INITS_PER_WINDOW = 40;
@@ -139,6 +150,13 @@ export class VoteVelocityGuard {
   private ipInits = new Map<string, number[]>();
   private ipPhones = new Map<string, Map<string, number>>();
 
+  /**
+   * Numbers with a prompt on screen right now, set by the payment route after
+   * the gateway accepts a push. Deliberately separate from `check()` so the
+   * pure rules stay testable without a lifecycle.
+   */
+  private prompts = new Map<string, number>();
+
   private static readonly MAX_TRACKED_PHONES = 20_000;
 
   constructor(
@@ -149,6 +167,7 @@ export class VoteVelocityGuard {
       duplicateWindowMs: DUPLICATE_ORDER_WINDOW_MS,
       ipInitsPerWindow: MAX_IP_INITS_PER_WINDOW,
       ipInitWindowMs: IP_INIT_WINDOW_MS,
+      outstandingPromptMs: OUTSTANDING_PROMPT_MS,
       ipDistinctPhoneLimit: IP_DISTINCT_PHONE_LIMIT,
       ipFanoutWindowMs: IP_FANOUT_WINDOW_MS,
     },
@@ -172,6 +191,28 @@ export class VoteVelocityGuard {
     if (now - state.dayStart >= 24 * 60 * 60_000) {
       state.dayStart = now;
       state.votesToday = 0;
+    }
+
+    // A prompt still waiting on the fan's screen. Sending another one is how a
+    // single vote becomes two M-Pesa charges and a reversal complaint.
+    const promptAt = this.prompts.get(phone);
+    if (promptAt !== undefined) {
+      if (now - promptAt >= this.limits.outstandingPromptMs) {
+        this.prompts.delete(phone);
+      } else {
+        recordAlertThrottled(
+          "warning",
+          "payment.prompt_outstanding",
+          "Blocked a second M-Pesa prompt while the first was still awaiting approval",
+          { phone: maskPhone(phone), artistId, amountKes, ip },
+        );
+        return {
+          allowed: false,
+          status: 429,
+          message:
+            "An M-Pesa prompt from this number is still waiting. Approve it on your phone, then try again in a few minutes.",
+        };
+      }
     }
 
     const ipWindow = (this.ipInits.get(ip) ?? []).filter((t) => now - t < this.limits.ipInitWindowMs);
@@ -268,6 +309,24 @@ export class VoteVelocityGuard {
 
     remember();
     return { allowed: true };
+  }
+
+  /** Records that a prompt is now waiting on this number's phone. */
+  markPromptSent(phone: string, now = Date.now()) {
+    this.prompts.set(phone, now);
+    if (this.prompts.size > VoteVelocityGuard.MAX_TRACKED_PHONES) {
+      for (const [key, at] of Array.from(this.prompts.entries())) {
+        if (now - at >= this.limits.outstandingPromptMs) this.prompts.delete(key);
+      }
+    }
+  }
+
+  /**
+   * Clears the pending prompt once its order has an answer — credited, refused
+   * by the gateway, or reported failed — so the fan is never locked out.
+   */
+  release(phone: string) {
+    this.prompts.delete(phone);
   }
 
   /** Exposed for tests. */

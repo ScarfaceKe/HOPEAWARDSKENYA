@@ -38,6 +38,34 @@ export const NOMINATION_PHOTO_MAX_MB = 2;
 export const PAYMENT_PROVIDER = "MegaPay";
 export const PAYMENT_PROVIDER_URL = "https://megapay.co.ke";
 
+/**
+ * The collection account the money must land in.
+ *
+ * Fans pay paybill 522533 (KCB) and the bank posts the payment to whatever
+ * account number travels with it. MegaPay has no account number of its own for
+ * this merchant — it forwards the `reference` we send straight through as the
+ * account number. Sending our order id there ("hopeawards-43-…") posts to an
+ * account that does not exist, and KCB returns the money to the payer.
+ *
+ * So every order sends THIS account number as its reference. Our own order id
+ * stays in the database and is matched again through the gateway's
+ * `transaction_request_id`, which is unique per order.
+ *
+ * Not a secret: it is the same number printed on our payment instructions.
+ */
+export const COLLECTION_PAYBILL = "522533";
+export const COLLECTION_ACCOUNT_NUMBER = "8035572";
+
+/**
+ * The account number to send with every payment. An explicit override (the
+ * `MEGAPAY_ACCOUNT_NUMBER` env var) wins; a blank override never disables the
+ * rule, because sending no account is what returned every payment to the payer.
+ */
+export function collectionAccountNumber(override?: string | null): string {
+  const value = (override ?? "").trim();
+  return value || COLLECTION_ACCOUNT_NUMBER;
+}
+
 /** Number of days a fan has to flag a payment that never produced votes. */
 export const PAYMENT_CLAIM_WINDOW_DAYS = 14;
 
