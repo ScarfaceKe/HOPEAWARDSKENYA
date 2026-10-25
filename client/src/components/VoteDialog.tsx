@@ -81,9 +81,32 @@ export function VoteDialog({ artistId, artistName, categoryName, isOpen, onClose
   const [failureMessage, setFailureMessage] = useState<string>("");
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const hasFiredConfetti = useRef(false);
+  // A ref, not state: two taps in the same tick both read the old `isPending`
+  // and would fire two payment requests (and two M-Pesa prompts).
+  const submitLockRef = useRef(false);
+  const [slowStart, setSlowStart] = useState(false);
   const { toast } = useToast();
 
   const RATE_PER_VOTE = VOTE_PRICE_KES;
+
+  // The API instance sleeps when idle, and the first payment request then waits
+  // ~50s for it to wake — which looks like "nothing happened". Waking it while
+  // the fan is still picking votes makes the prompt arrive immediately.
+  useEffect(() => {
+    if (isOpen) {
+      fetch("/api/health", { cache: "no-store" }).catch(() => {});
+    }
+  }, [isOpen]);
+
+  // Tell the fan when the wait is the server starting, not a failure.
+  useEffect(() => {
+    if (!isPending) {
+      setSlowStart(false);
+      return;
+    }
+    const timer = setTimeout(() => setSlowStart(true), 7000);
+    return () => clearTimeout(timer);
+  }, [isPending]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -174,12 +197,17 @@ export function VoteDialog({ artistId, artistName, categoryName, isOpen, onClose
   };
 
   const handleSubmit = async () => {
-    if (votes <= 0 || isPending) return;
+    if (votes <= 0 || isPending || submitLockRef.current) return;
+
     const normalized = normalizePhone(phone);
     if (!normalized || normalized.length < 12) {
       toast({ title: "Phone Number Required", description: "Enter your Safaricom M-Pesa number e.g. 0712 345 678", variant: "destructive" });
       return;
     }
+
+    // Lock only once the order is really going out: a typo in the phone number
+    // must never leave the Pay button dead for the rest of the dialog.
+    submitLockRef.current = true;
     setIsPending(true);
     try {
       const res = await fetch("/api/megapay/initialize", {
@@ -199,6 +227,8 @@ export function VoteDialog({ artistId, artistName, categoryName, isOpen, onClose
     } catch (err: any) {
       setIsPending(false);
       toast({ title: "Payment Failed", description: err.message || "Could not start payment. Try again.", variant: "destructive" });
+    } finally {
+      submitLockRef.current = false;
     }
   };
 
@@ -432,6 +462,11 @@ export function VoteDialog({ artistId, artistName, categoryName, isOpen, onClose
               {pollingStatus === "polling" && (
                 <p className="text-center text-xs text-muted-foreground mt-3">
                   ✓ M-Pesa prompt sent — enter your PIN on your phone to complete.
+                </p>
+              )}
+              {isPending && slowStart && (
+                <p className="text-center text-xs text-amber-400 mt-3">
+                  Starting the payment service — the first attempt can take up to a minute. Please don't tap Pay again.
                 </p>
               )}
               {pollingStatus === "timeout" && (

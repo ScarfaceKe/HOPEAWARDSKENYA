@@ -31,7 +31,7 @@ export const DUPLICATE_ORDER_WINDOW_MS = 25_000;
  * A fan who votes again *after* a prompt settles is never blocked — the mark is
  * cleared the moment the order is credited, refused, or reported failed.
  */
-export const OUTSTANDING_PROMPT_MS = 3 * 60_000;
+export const OUTSTANDING_PROMPT_MS = 90_000;
 
 /** Orders allowed from one IP inside a window. */
 export const IP_INIT_WINDOW_MS = 10 * 60_000;

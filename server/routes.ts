@@ -1091,6 +1091,11 @@ export async function registerRoutes(
     }
 
     try {
+      // Reserve this number BEFORE asking the gateway. A cold instance can take
+      // ~50s to answer, which makes fans tap again; without the reservation both
+      // requests would send a prompt and charge them twice.
+      voteVelocity.markPromptSent(phone);
+
       const response = await fetch("https://megapay.co.ke/backend/v1/initiatestk", {
         method: "POST",
         headers: {
@@ -1123,9 +1128,8 @@ export async function registerRoutes(
         return res.status(400).json({ message: data.message || "Failed to initiate M-Pesa payment", megapayResponse: data });
       }
 
-      // The prompt is now on the fan's screen. Until it is answered, no second
-      // prompt may be sent to this number — two live prompts is a double debit.
-      voteVelocity.markPromptSent(phone);
+      // The prompt is now on the fan's screen; the number stays reserved until
+      // it is answered (see markPromptSent above).
 
       // Store the gateway's transaction id so this order can still be confirmed
       // directly with MegaPay if its callback never reaches us.
