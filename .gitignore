@@ -1,6 +1,9 @@
 node_modules
 dist
 isolate
+test-results
+playwright-report
+blob-report
 .DS_Store
 server/public
 vite.config.ts.*
