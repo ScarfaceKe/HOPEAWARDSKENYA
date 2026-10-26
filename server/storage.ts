@@ -296,8 +296,12 @@ export class DatabaseStorage implements IStorage {
   async getVotesByPhone(phone: string): Promise<VoteResponse[]> {
     const normalized = phone.replace(/\D/g, "");
     if (!normalized) return [];
+    // Match on the subscriber part only (last 9 digits), so a vote stored as
+    // 254712345678 is still found when the fan types 0712345678 — and an older
+    // row saved in local format keeps working too.
+    const subscriber = normalized.slice(-9);
     return await db.select().from(votes).where(
-      sql`regexp_replace(${votes.voterPhone}, '[^0-9]', '', 'g') = ${normalized}`
+      sql`right(regexp_replace(coalesce(${votes.voterPhone}, ''), '[^0-9]', '', 'g'), 9) = ${subscriber}`
     );
   }
 

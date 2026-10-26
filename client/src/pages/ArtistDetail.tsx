@@ -1,7 +1,7 @@
 import { useRoute, Link, useLocation } from "wouter";
 import { useArtist } from "@/hooks/use-artists";
 import { useState } from "react";
-import { VoteDialog } from "@/components/VoteDialog";
+import { VoteDialog, type VoteConfirmation } from "@/components/VoteDialog";
 import { motion } from "framer-motion";
 import { ArrowLeft, Flame, Share2, Loader2, Lock, Trophy, ChevronLeft, Zap } from "lucide-react";
 import { useCategories } from "@/hooks/use-categories";
@@ -14,7 +14,7 @@ export default function ArtistDetail() {
 
   const { data: artist, isLoading } = useArtist(id);
   const [isVoteOpen, setIsVoteOpen] = useState(false);
-  const [justVoted, setJustVoted] = useState(false);
+  const [justVoted, setJustVoted] = useState<VoteConfirmation | null>(null);
   const { votingOpen, votingPre, votingClosed } = useVotingStatus();
   const { categoryName: nameOfCategory } = useCategories();
 
@@ -109,11 +109,16 @@ export default function ArtistDetail() {
             >
               {justVoted && (
                 <div className="text-center mb-8">
-                  <p className="text-muted-foreground text-sm uppercase tracking-widest font-semibold mb-3">Current Votes</p>
+                  <p className="text-muted-foreground text-sm uppercase tracking-widest font-semibold mb-3">Total votes for this nominee</p>
                   <div className="flex items-center justify-center gap-3 font-display text-white">
                     <Flame className="w-10 h-10 text-primary animate-pulse" />
-                    <span className="text-5xl" data-testid="text-detail-votes">{artist.totalVotes.toLocaleString()}</span>
+                    <span className="text-5xl" data-testid="text-detail-votes">
+                      {justVoted.totalVotes != null ? justVoted.totalVotes.toLocaleString() : "—"}
+                    </span>
                   </div>
+                  <p className="text-secondary text-sm font-semibold mt-3" data-testid="text-detail-your-votes">
+                    ✓ +{justVoted.votesAdded.toLocaleString()} vote{justVoted.votesAdded === 1 ? "" : "s"} counted
+                  </p>
                 </div>
               )}
 
@@ -123,7 +128,7 @@ export default function ArtistDetail() {
                 justVoted ? (
                   <div className="flex flex-col gap-3 mb-4">
                     <button
-                      onClick={() => { setJustVoted(false); navigate(`/category/${artist.category}`); }}
+                      onClick={() => { setJustVoted(null); navigate(`/category/${artist.category}`); }}
                       data-testid="button-go-back"
                       className="w-full py-4 bg-white/5 border border-white/15 text-white/70 rounded-xl font-display text-lg tracking-widest flex items-center justify-center gap-2 hover:bg-white/10 active:scale-95 transition-all"
                     >
@@ -131,7 +136,7 @@ export default function ArtistDetail() {
                       GO BACK
                     </button>
                     <button
-                      onClick={() => { setJustVoted(false); setIsVoteOpen(true); }}
+                      onClick={() => { setJustVoted(null); setIsVoteOpen(true); }}
                       data-testid="button-vote-again"
                       className="w-full py-4 bg-primary/15 border border-primary/40 text-primary rounded-xl font-display text-lg tracking-widest flex items-center justify-center gap-2 hover:bg-primary/25 active:scale-95 transition-all"
                     >
@@ -187,7 +192,7 @@ VOTING CLOSED
         categoryName={categoryName}
         isOpen={isVoteOpen}
         onClose={() => setIsVoteOpen(false)}
-        onVoteSuccess={() => setJustVoted(true)}
+        onVoteSuccess={setJustVoted}
       />
     </div>
   );

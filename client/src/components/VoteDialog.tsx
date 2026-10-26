@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { Link } from "wouter";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { motion, AnimatePresence } from "framer-motion";
@@ -14,13 +15,26 @@ function normalizePhone(raw: string): string {
   return digits;
 }
 
+/**
+ * The numbers the fan is owed the moment their payment is confirmed. The public
+ * artist endpoints deliberately do not carry tallies, so this confirmation is
+ * the only trustworthy source for the post-vote total.
+ *
+ * `totalVotes` is null when the server could not tell us — never render it as 0,
+ * which would read as "your votes vanished".
+ */
+export interface VoteConfirmation {
+  votesAdded: number;
+  totalVotes: number | null;
+}
+
 interface VoteDialogProps {
   artistId: number;
   artistName: string;
   categoryName?: string;
   isOpen: boolean;
   onClose: () => void;
-  onVoteSuccess?: () => void;
+  onVoteSuccess?: (confirmation: VoteConfirmation) => void;
 }
 
 function fireVoteConfetti() {
@@ -41,11 +55,20 @@ function fireVoteConfetti() {
   }, 500);
 }
 
+/** How often the success screen re-reads the nominee's running total. */
+const LIVE_TOTAL_REFRESH_MS = 5000;
+
 function CountUp({ to, duration = 1100 }: { to: number; duration?: number }) {
   const [value, setValue] = useState(0);
+  // Where the animation currently is. A live refresh changes `to` while the
+  // success screen is open, and counting again from 0 would look like the
+  // nominee's votes were wiped — so every run starts from the shown number.
+  const shownRef = useRef(0);
+
   useEffect(() => {
-    if (to <= 0) {
-      setValue(0);
+    const from = shownRef.current;
+    if (from === to) {
+      setValue(to);
       return;
     }
     let frame = 0;
@@ -53,8 +76,11 @@ function CountUp({ to, duration = 1100 }: { to: number; duration?: number }) {
     const tick = (now: number) => {
       const progress = Math.min(1, (now - start) / duration);
       // Ease-out so the number rushes in, then settles.
-      setValue(Math.round(to * (1 - Math.pow(1 - progress, 3))));
+      const next = Math.round(from + (to - from) * (1 - Math.pow(1 - progress, 3)));
+      shownRef.current = next;
+      setValue(next);
       if (progress < 1) frame = requestAnimationFrame(tick);
+      else shownRef.current = to;
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
@@ -77,9 +103,23 @@ export function VoteDialog({ artistId, artistName, categoryName, isOpen, onClose
   const [phone, setPhone] = useState<string>("");
   const [isPending, setIsPending] = useState(false);
   const [pollingStatus, setPollingStatus] = useState<string | null>(null);
-  const [confirmed, setConfirmed] = useState<{ votesAdded: number; totalVotes: number } | null>(null);
+  const [confirmed, setConfirmed] = useState<VoteConfirmation | null>(null);
   const [failureMessage, setFailureMessage] = useState<string>("");
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const liveTotalTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Async poll/refresh callbacks can resolve after the fan closes the dialog.
+  // Without this guard, a late response would flip the page behind the dialog
+  // back to the success state and start a live-total timer that nothing clears.
+  const isOpenRef = useRef(isOpen);
+  useEffect(() => {
+    isOpenRef.current = isOpen;
+    return () => {
+      isOpenRef.current = false;
+    };
+  }, [isOpen]);
+  // The total last handed to the page behind the dialog, so a refresh that
+  // changes nothing does not re-render it every few seconds.
+  const lastLiveTotalRef = useRef<number | null>(null);
   const hasFiredConfetti = useRef(false);
   // A ref, not state: two taps in the same tick both read the old `isPending`
   // and would fire two payment requests (and two M-Pesa prompts).
@@ -108,8 +148,17 @@ export function VoteDialog({ artistId, artistName, categoryName, isOpen, onClose
     return () => clearTimeout(timer);
   }, [isPending]);
 
+  const stopLiveTotal = () => {
+    if (liveTotalTimerRef.current) {
+      clearInterval(liveTotalTimerRef.current);
+      liveTotalTimerRef.current = null;
+    }
+  };
+
   useEffect(() => {
     if (!isOpen) {
+      // Stop the live tally the moment the fan leaves the success screen.
+      stopLiveTotal();
       setTimeout(() => {
         setVotes(2);
         setCustomVotes("");
@@ -119,10 +168,43 @@ export function VoteDialog({ artistId, artistName, categoryName, isOpen, onClose
         setConfirmed(null);
         setFailureMessage("");
         hasFiredConfetti.current = false;
+        lastLiveTotalRef.current = null;
         if (pollTimerRef.current) { clearInterval(pollTimerRef.current); pollTimerRef.current = null; }
       }, 300);
     }
   }, [isOpen]);
+
+  /**
+   * Keeps the "New total" tile true while the fan is looking at it. The status
+   * route already returns the nominee's fresh database total for a recorded
+   * vote, so holding the payment reference is enough to read the live tally —
+   * the public nominee endpoints stay without vote counts.
+   */
+  const startLiveTotal = (reference: string, votesAdded: number) => {
+    stopLiveTotal();
+    liveTotalTimerRef.current = setInterval(async () => {
+      if (!isOpenRef.current) {
+        stopLiveTotal();
+        return;
+      }
+      try {
+        const res = await fetch(`/api/megapay/status/${reference}`, { cache: "no-store" });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!isOpenRef.current) return;
+        if (data.status !== "recorded") return;
+        const rawTotal = data.totalVotes;
+        const parsed = rawTotal === null || rawTotal === undefined || rawTotal === "" ? NaN : Number(rawTotal);
+        if (!Number.isFinite(parsed) || parsed < 0) return;
+        if (parsed === lastLiveTotalRef.current) return;
+        lastLiveTotalRef.current = parsed;
+        setConfirmed((prev) => (prev ? { ...prev, totalVotes: parsed } : prev));
+        if (onVoteSuccess) onVoteSuccess({ votesAdded, totalVotes: parsed });
+      } catch {
+        // A dropped refresh leaves the last known total on screen.
+      }
+    }, LIVE_TOTAL_REFRESH_MS);
+  };
 
   const startPolling = (reference: string, expectedVotes: number) => {
     if (pollTimerRef.current) clearInterval(pollTimerRef.current);
@@ -137,19 +219,25 @@ export function VoteDialog({ artistId, artistName, categoryName, isOpen, onClose
       try {
         const res = await fetch(`/api/megapay/status/${reference}`);
         const data = await res.json();
+        // A poll that lands after the dialog closed must not reopen the success
+        // screen (or fire confetti) on a page the fan has already left.
+        if (!isOpenRef.current) return;
 
         // "recorded" is only returned when a real vote row exists — the server
         // reconciles a lost callback with MegaPay first, so this is the point at
         // which the votes are genuinely on the board.
         if (data.status === "recorded" || data.status === "already_recorded" || data.status === "success") {
           if (pollTimerRef.current) clearInterval(pollTimerRef.current);
-          setConfirmed({
-            votesAdded: Number(data.votesAdded ?? data.vote?.votesAdded ?? expectedVotes),
-            totalVotes: Number(data.totalVotes ?? 0),
-          });
+          const votesAdded = Number(data.votesAdded ?? data.vote?.votesAdded ?? expectedVotes);
+          const rawTotal = data.totalVotes;
+          const parsedTotal = rawTotal === null || rawTotal === undefined || rawTotal === "" ? NaN : Number(rawTotal);
+          const totalVotes = Number.isFinite(parsedTotal) && parsedTotal >= 0 ? parsedTotal : null;
+          setConfirmed({ votesAdded, totalVotes });
           setPollingStatus("confirmed");
           sessionStorage.removeItem("pendingVote");
-          if (onVoteSuccess) onVoteSuccess();
+          lastLiveTotalRef.current = totalVotes;
+          if (onVoteSuccess) onVoteSuccess({ votesAdded, totalVotes });
+          startLiveTotal(reference, votesAdded);
           if (!hasFiredConfetti.current) {
             hasFiredConfetti.current = true;
             fireVoteConfetti();
@@ -181,6 +269,7 @@ export function VoteDialog({ artistId, artistName, categoryName, isOpen, onClose
   useEffect(() => {
     return () => {
       if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+      if (liveTotalTimerRef.current) clearInterval(liveTotalTimerRef.current);
     };
   }, []);
 
@@ -318,11 +407,15 @@ export function VoteDialog({ artistId, artistName, categoryName, isOpen, onClose
                     transition={{ delay: 0.65, type: "spring", bounce: 0.4 }}
                     className="rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-4"
                   >
-                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground mb-1">
-                      New total
+                    <p className="flex items-center justify-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground mb-1">
+                      Total votes now
+                      <span className="inline-flex items-center gap-1 text-emerald-400" data-testid="live-total-indicator">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" aria-hidden="true" />
+                        live
+                      </span>
                     </p>
                     <p className="font-display text-3xl text-accent leading-none" data-testid="new-total">
-                      <CountUp to={confirmed?.totalVotes ?? 0} />
+                      {confirmed?.totalVotes != null ? <CountUp to={confirmed.totalVotes} /> : "—"}
                     </p>
                   </motion.div>
                 </div>
@@ -344,6 +437,16 @@ export function VoteDialog({ artistId, artistName, categoryName, isOpen, onClose
                 >
                   CONTINUE VOTING
                 </button>
+                {/* The fan's own running total lives on /my-votes; give them the
+                    one tap there while the confirmation is still on screen. */}
+                <Link href="/my-votes">
+                  <span
+                    className="block mt-3 text-center text-xs font-bold uppercase tracking-[0.18em] text-accent hover:text-accent/80 transition-colors cursor-pointer"
+                    data-testid="link-my-votes"
+                  >
+                    See all my votes →
+                  </span>
+                </Link>
               </motion.div>
             </motion.div>
           ) : (

@@ -146,6 +146,23 @@ test("vote status: a reference we never issued is refused before storage is touc
   assert.equal(res.status, 404);
 });
 
+test("vote status: never cached, so the post-vote tally can move in real time", async () => {
+  // The vote dialog polls this route while the success screen is open. A cached
+  // answer would pin the nominee's total at whatever it was on the first read.
+  const res = await get("/api/megapay/status/zzz");
+  assert.equal(res.status, 404);
+  assert.match(res.headers.get("cache-control") ?? "", /no-store/);
+});
+
+test("my-votes: a number M-Pesa cannot charge is refused before storage is touched", async () => {
+  // The route normalises 0712…/254…/712… into one form before looking votes up.
+  // A landline shape is rejected at that gate; if it fell through, the closed
+  // database behind this suite would turn it into a 500 instead of an empty list.
+  const res = await get("/api/my-votes?phone=0201234567");
+  assert.equal(res.status, 200);
+  assert.deepEqual(await res.json(), []);
+});
+
 test("ADMIN: wrong password is rejected with an attempt counter", async () => {
   const res = await post("/api/admin/login", { password: "nope" });
   assert.equal(res.status, 401);

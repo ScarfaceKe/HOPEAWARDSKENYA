@@ -1267,7 +1267,9 @@ export async function registerRoutes(
    * asks MegaPay for the transaction result and credits the order itself. So a
    * fan cannot be charged for a vote that never counts.
    */
-  app.get("/api/megapay/status/:reference", async (req, res) => {
+  // `noCache`, like the admin reads: the vote dialog re-reads this route while
+  // the success screen is open, and a cached answer would freeze the tally.
+  app.get("/api/megapay/status/:reference", noCache, async (req, res) => {
     const reference = String(req.params.reference);
 
     // References are ours (hopeawards-…) or admin tests (hopetest-…); anything
@@ -1766,8 +1768,11 @@ export async function registerRoutes(
   });
 
   app.get("/api/my-votes", async (req, res) => {
-    const phone = (req.query.phone as string || "").replace(/\D/g, "");
-    if (!phone || phone.length < 7) {
+    // Normalise the same way the vote itself was normalised. Comparing raw
+    // digits meant a fan typing "0712…" (what the form suggests first) matched
+    // nothing, because every stored vote is "254712…".
+    const phone = normalizeVotePhone(String(req.query.phone ?? ""));
+    if (!phone) {
       return res.json([]);
     }
     const voteRecords = await storage.getVotesByPhone(phone);

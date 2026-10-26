@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link } from "wouter";
 import { Lock, ChevronLeft, Zap, Share2, Check } from "lucide-react";
 import type { ArtistResponse } from "@shared/routes";
-import { VoteDialog } from "./VoteDialog";
+import { VoteDialog, type VoteConfirmation } from "./VoteDialog";
 import { useVotingStatus } from "@/hooks/use-voting-status";
 import { useCategories } from "@/hooks/use-categories";
 import { AWARDS_DATE } from "@shared/dates";
@@ -13,7 +13,7 @@ interface ArtistCardProps {
 
 export function ArtistCard({ artist }: ArtistCardProps) {
   const [isVoteOpen, setIsVoteOpen] = useState(false);
-  const [justVoted, setJustVoted] = useState(false);
+  const [justVoted, setJustVoted] = useState<VoteConfirmation | null>(null);
   const [copied, setCopied] = useState(false);
   const { votingOpen, votingPre } = useVotingStatus();
   const { getCategory } = useCategories();
@@ -111,9 +111,28 @@ export function ArtistCard({ artist }: ArtistCardProps) {
 
             {votingOpen ? (
               justVoted ? (
-                <div className="flex flex-col gap-1.5 shrink-0">
+                <div className="flex flex-col items-end gap-1.5 shrink-0">
+                  {/* Tallies stay private while voting is open, so the fan sees the
+                      total from their own confirmed payment instead of the public
+                      payload (which carries no vote counts). */}
+                  <div
+                    className="flex items-baseline gap-1.5 px-3 py-1.5 rounded-xl bg-secondary/10 border border-secondary/30"
+                    data-testid={`votes-count-${artist.id}`}
+                    title={
+                      justVoted.totalVotes != null
+                        ? `Your ${justVoted.votesAdded.toLocaleString()} vote${justVoted.votesAdded === 1 ? " is" : "s are"} in this total`
+                        : "Your votes are counted"
+                    }
+                  >
+                    <span className="font-display text-lg text-secondary font-bold leading-none">
+                      {justVoted.totalVotes != null ? justVoted.totalVotes.toLocaleString() : "✓"}
+                    </span>
+                    <span className="text-[10px] text-secondary/70 uppercase tracking-wide">
+                      {justVoted.totalVotes != null ? "total votes" : "votes counted"}
+                    </span>
+                  </div>
                   <button
-                    onClick={() => setJustVoted(false)}
+                    onClick={() => setJustVoted(null)}
                     data-testid={`button-back-${artist.id}`}
                     className="px-4 py-2 bg-white/8 border border-white/15 text-white/70 rounded-xl font-display text-xs tracking-wider flex items-center gap-1.5 hover:bg-white/15 active:scale-95 transition-all"
                   >
@@ -121,7 +140,7 @@ export function ArtistCard({ artist }: ArtistCardProps) {
                     BACK
                   </button>
                   <button
-                    onClick={() => { setJustVoted(false); setIsVoteOpen(true); }}
+                    onClick={() => { setJustVoted(null); setIsVoteOpen(true); }}
                     data-testid={`button-vote-again-${artist.id}`}
                     className="px-4 py-2 bg-primary/20 border border-primary/40 text-primary rounded-xl font-display text-xs tracking-wider flex items-center gap-1.5 hover:bg-primary/30 active:scale-95 transition-all"
                   >
@@ -170,7 +189,7 @@ VOTING CLOSED
         categoryName={fullCategoryName}
         isOpen={isVoteOpen}
         onClose={() => setIsVoteOpen(false)}
-        onVoteSuccess={() => setJustVoted(true)}
+        onVoteSuccess={setJustVoted}
       />
     </>
   );
