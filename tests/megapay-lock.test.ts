@@ -191,3 +191,19 @@ test("the USSD rail charges through the same account and the same rules", () => 
   // settlement, and MegaPay throttles repeated checks.
   assert.equal(countOccurrences(USSD_SOURCE, TRANSACTION_STATUS), 0);
 });
+
+test("a refused or lost callback is still credited within a minute", () => {
+  // The IP allowlist is a hint, never the thing that decides whether a fan's
+  // money counts: if MegaPay starts sending from an address it did not publish,
+  // their callback is refused. Votes must not wait for a human to notice — the
+  // sweep reads the gateway itself. Slowing it back to five minutes (or raising
+  // the age threshold) silently turns a refused callback into a ten-minute wait.
+  assert.match(ROUTES_SOURCE, /RECOVERY_MIN_AGE_MS = 60_000/);
+  assert.match(ROUTES_SOURCE, /setInterval\(recoverPendingPayments, 60 \* 1000\)/);
+
+  // Safaricom can report a prompt failed while the handset is still processing
+  // it. Deleting the order then would make a real, later payment impossible to
+  // credit, so "failed" only becomes final after five minutes.
+  assert.match(ROUTES_SOURCE, /FAILED_ORDER_RETENTION_MS = 5 \* 60_000/);
+  assert.match(ROUTES_SOURCE, /age < FAILED_ORDER_RETENTION_MS\) continue;/);
+});

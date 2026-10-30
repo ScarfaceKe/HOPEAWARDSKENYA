@@ -2072,14 +2072,32 @@ export async function registerRoutes(
   });
 
   // ─── Background recovery: catch abandoned payments ────────────────────────
-  // Runs 2 minutes after startup, then every 5 minutes.
-  // For every pending_payment older than 5 minutes, logs for manual review —
-  // MegaPay handles payment confirmation via callback.
+  // Runs 1 minute after startup, then every minute.
+  //
+  // A callback is a convenience, never the source of truth. If MegaPay's webhook
+  // is refused (they start sending from an address the allowlist does not know),
+  // lost, or late, this pass asks the gateway about the order itself and credits
+  // the votes anyway. The one-minute cadence is what stops a refused callback
+  // from costing a fan ten minutes of "where are my votes?".
+  const RECOVERY_MIN_AGE_MS = 60_000;
+  /** A deleted order can no longer be credited, so "failed" is only final here. */
+  const FAILED_ORDER_RETENTION_MS = 5 * 60_000;
+  /** Bounds the gateway calls one pass can make, however many orders are open. */
+  const RECOVERY_BATCH = 40;
+
   async function recoverPendingPayments() {
     const megapayApiKey = process.env.MEGAPAY_API_KEY;
     if (!megapayApiKey) return;
     try {
-      const pending = await storage.getOldPendingPayments(5 * 60 * 1000);
+      // Oldest first: a queue, not a stack. With N orders open every one is
+      // revisited every ceil(N / RECOVERY_BATCH) minutes, so a busy night
+      // delays a fresh order by a pass instead of starving an old one forever.
+      const pending = (await storage.getOldPendingPayments(RECOVERY_MIN_AGE_MS))
+        .sort(
+          (a, b) =>
+            new Date(a.createdAt ?? 0).getTime() - new Date(b.createdAt ?? 0).getTime(),
+        )
+        .slice(0, RECOVERY_BATCH);
       if (pending.length === 0) return;
       console.log(`[RECOVERY] Checking ${pending.length} pending payment(s)...`);
       for (const p of pending) {
@@ -2098,6 +2116,11 @@ export async function registerRoutes(
             amountKes: p.amountKes,
           });
           if (gateway?.failed) {
+            // Safaricom can report a prompt failed while the handset is still
+            // processing it. Deleting the order would make a later real payment
+            // uncashable, so it stays until it is old enough to be abandoned.
+            const age = Date.now() - new Date(p.createdAt ?? 0).getTime();
+            if (age < FAILED_ORDER_RETENTION_MS) continue;
             await storage.deletePendingPayment(p.reference).catch(() => {});
             console.log(`[RECOVERY] Cleared a failed order: ref=${p.reference}`);
             continue;
@@ -2176,10 +2199,10 @@ export async function registerRoutes(
 
   setTimeout(() => {
     recoverPendingPayments();
-    setInterval(recoverPendingPayments, 5 * 60 * 1000).unref();
+    setInterval(recoverPendingPayments, 60 * 1000).unref();
     reconcileRecentVotes();
     setInterval(reconcileRecentVotes, 3 * 60 * 1000).unref();
-  }, 2 * 60 * 1000).unref();
+  }, 60 * 1000).unref();
 
   return httpServer;
 }
