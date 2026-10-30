@@ -146,6 +146,29 @@ test("the callback stays the only payment POST that skips CSRF", () => {
   assert.deepEqual(exempt, ["/api/megapay/callback", "/api/megapay/initialize"]);
 });
 
+test("a vote is only written after the gateway confirms the money", () => {
+  // One writer on the server: creditPendingOrder. The USSD rail prepares orders
+  // and charges them; it never writes votes and never keeps a counter of its own,
+  // so a USSD vote lands in the same `votes` rows (and the same totalVotes) as a
+  // web vote.
+  assert.equal(
+    countOccurrences(ROUTES_SOURCE, "storage.createVote("),
+    1,
+    "every vote must be written by creditPendingOrder — a second writer is a bypass",
+  );
+  assert.equal(countOccurrences(USSD_SOURCE, "createVote"), 0);
+  assert.equal(countOccurrences(USSD_SOURCE, "totalVotes"), 0);
+
+  const block = routeBlocks().find((b) => b.line === "POST /api/megapay/callback");
+  assert.ok(block, "POST /api/megapay/callback is missing");
+
+  // The callback body is not proof: it asks MegaPay what settled, and a short
+  // payment must not buy the full pack.
+  assert.match(block.body, /fetchGatewayStatus\(/);
+  assert.match(block.body, /gateway\.amount < pending\.amountKes/);
+  assert.match(block.body, /no matching pending order/);
+});
+
 test("the USSD rail charges through the same account and the same rules", () => {
   // Exactly one gateway charge in server/ussd.ts. Anything more is a path
   // nobody is reconciling; anything less means USSD stopped working.

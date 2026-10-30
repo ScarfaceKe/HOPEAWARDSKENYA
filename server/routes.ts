@@ -1041,6 +1041,8 @@ export async function registerRoutes(
   // must not touch this flow. `tests/megapay-lock.test.ts` fails if the route
   // surface, the collection account, the charge call sites or the CSRF
   // exemptions change, so a regression here cannot reach production quietly.
+  // Settlement guards may only ever be *tightened* (always ask the gateway, and
+  // never credit less money than the order) — loosening one gives away votes.
 
   /**
    * The account number KCB must receive on paybill 522533 for every payment.
@@ -1671,6 +1673,21 @@ export async function registerRoutes(
             `[MEGAPAY CALLBACK] Body claimed success but MegaPay has not settled ${reference} — waiting`,
           );
           return res.status(200).json({ status: "awaiting_settlement" });
+        }
+
+        // A callback body can claim any amount, so the figure that counts is the
+        // one the *gateway* reports. Underpayment is the abuse that matters — a
+        // fan sending KES 10 for a KES 1,000 pack must not receive 100 votes.
+        // Overpayment is allowed through: it is a fan's mistake, not vote theft,
+        // and blocking it would leave a paying fan with nothing.
+        if (gateway.amount !== null && gateway.amount < pending.amountKes) {
+          recordAlertThrottled(
+            "critical",
+            "payment.callback_amount_short",
+            "MegaPay settled less than the order amount — vote not recorded",
+            { reference, gatewayAmount: gateway.amount, expected: pending.amountKes, ip: callbackIp },
+          );
+          return res.status(200).json({ status: "amount_mismatch" });
         }
 
         // The order's phone is authoritative. The callback body is unauthenticated,

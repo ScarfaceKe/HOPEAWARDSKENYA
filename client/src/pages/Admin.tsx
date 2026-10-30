@@ -5,6 +5,7 @@ import { useToast } from "@/hooks/use-toast";
 import { motion } from "framer-motion";
 import { ShieldAlert, ShieldCheck, KeyRound, Activity, Plus, Mic2, Image as ImageIcon, Lock, LogOut, Check, X, Inbox, Search, Trash2, Upload, Users, AlertTriangle, Download, BarChart2, Shuffle, Pencil, Loader2, Tags, Smartphone } from "lucide-react";
 import { CATEGORY_CAP } from "@shared/schema";
+import { USSD_SHORTCODE, ussdNomineeCode } from "@shared/site";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest, csrfFetch } from "@/lib/queryClient";
 import { useCategories } from "@/hooks/use-categories";
@@ -795,6 +796,25 @@ export default function Admin() {
               <span className="text-sm font-bold uppercase tracking-wider hidden sm:inline">Logout</span>
             </button>
           </div>
+        </div>
+
+        {/* The USSD rail is invisible unless the admin can see the shortcode and
+            each nominee's code — these are what fans type on a feature phone. */}
+        <div
+          data-testid="admin-ussd-banner"
+          className="mb-6 rounded-2xl border border-primary/25 bg-primary/5 px-5 py-4 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-8"
+        >
+          <div className="shrink-0">
+            <p className="text-[11px] uppercase tracking-widest text-primary/70 font-bold">USSD voting</p>
+            <p className="font-display text-2xl text-primary tracking-wider" data-testid="text-ussd-shortcode">
+              {USSD_SHORTCODE}
+            </p>
+          </div>
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            Fans without data dial this, enter the nominee's three-digit code and pick a vote pack.
+            Codes are listed in the <strong className="text-white">VOTES</strong> tab and on each nominee's public page.
+            USSD payments credit the <strong className="text-white">same vote totals</strong> as the website — there is no separate counter.
+          </p>
         </div>
 
         <div className="flex gap-2 mb-8 flex-wrap">
@@ -1862,6 +1882,13 @@ export default function Admin() {
                           <div className="flex-1 min-w-0">
                             <h4 className="font-display text-base text-white truncate">{artist.name}</h4>
                             <p className="text-xs text-primary/70 truncate">{catName}</p>
+                            <p
+                              data-testid={`ussd-code-${artist.id}`}
+                              className="mt-1 inline-flex items-center gap-1 rounded border border-primary/25 bg-primary/10 px-2 py-0.5 font-mono text-[11px] text-primary"
+                              title={`Fans dial ${USSD_SHORTCODE} and enter ${ussdNomineeCode(artist.id)} to vote for ${artist.name}`}
+                            >
+                              USSD {ussdNomineeCode(artist.id)}
+                            </p>
                           </div>
                           <div className="shrink-0 text-right">
                             <p className="text-xl font-display text-secondary font-bold" data-testid={`votes-count-${artist.id}`}>
