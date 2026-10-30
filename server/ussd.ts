@@ -40,8 +40,13 @@ export const USSD_SESSION_TTL_MS = 3 * 60_000;
 /** MobileSasa signs `${t}.${rawBody}`; reject replays outside this window. */
 export const USSD_SIGNATURE_TOLERANCE_MS = 5 * 60_000;
 
-/** Vote packs offered on the handset: KES 10, 50, 100, 200, 500. */
-export const USSD_PACKS = [1, 5, 10, 20, 50] as const;
+/**
+ * Vote packs offered on the handset: KES 20, 30, 50, 100, 200, 500, 1,000.
+ * There is deliberately no single-vote option — a KES 10 entry is what every
+ * fan picks, and it starves the nominees of the volume the season needs.
+ * All amounts stay multiples of VOTE_PRICE_KES, so pricing has one source.
+ */
+export const USSD_PACKS = [2, 3, 5, 10, 20, 50, 100] as const;
 
 export interface UssdInput {
   sessionId: string;
@@ -206,22 +211,30 @@ const HELP = end(
 );
 
 function packsScreen(artist: UssdArtist): string {
+  // Seven packs have to survive a 160-character USSD screen, so the name is
+  // clipped hard and the category is held back for the confirmation screen —
+  // where the fan is about to approve money and needs to see exactly who.
   const lines = [
-    `${ussdNomineeCode(artist.id)} ${clip(artist.name, 26)}`,
-    clip(artist.categoryName, 30),
+    `${ussdNomineeCode(artist.id)} ${clip(artist.name, 16)}`,
     ...USSD_PACKS.map(
       (votes, i) =>
-        `${i + 1}. ${votes} vote${votes === 1 ? "" : "s"} KES ${(votes * VOTE_PRICE_KES).toLocaleString("en-KE")}`,
+        `${i + 1}. ${votes} votes KES ${votes * VOTE_PRICE_KES}`,
     ),
   ];
   return con(lines.join("\n"));
 }
 
-function confirmScreen(artistName: string, votes: number, amountKes: number): string {
+function confirmScreen(
+  artistName: string,
+  categoryName: string,
+  votes: number,
+  amountKes: number,
+): string {
   return con(
     [
-      `Pay KES ${amountKes.toLocaleString("en-KE")} for ${votes}`,
-      `vote${votes === 1 ? "" : "s"} to ${clip(artistName, 24)}?`,
+      `Pay KES ${amountKes} for ${votes}`,
+      `votes to ${clip(artistName, 24)}?`,
+      clip(categoryName, 30),
       "1. Yes - send M-Pesa prompt",
       "2. Cancel",
     ].join("\n"),
@@ -377,7 +390,7 @@ export async function handleUssd(
         },
         now,
       );
-      return confirmScreen(artist.name, votes, votes * VOTE_PRICE_KES);
+      return confirmScreen(artist.name, artist.categoryName, votes, votes * VOTE_PRICE_KES);
     }
 
     case "confirm": {
@@ -411,7 +424,7 @@ export async function handleUssd(
         return end("Cancelled. No payment was\nrequested. Dial again\nany time before 6 Dec.");
       }
       if (pressed !== "1") {
-        return confirmScreen(artist.name, votes, votes * VOTE_PRICE_KES);
+        return confirmScreen(artist.name, artist.categoryName, votes, votes * VOTE_PRICE_KES);
       }
 
       sessions.delete(sessionId);

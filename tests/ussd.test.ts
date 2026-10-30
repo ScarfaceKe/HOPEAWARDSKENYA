@@ -82,21 +82,31 @@ test("an unknown nominee code re-prompts instead of charging", async () => {
   assert.equal(prepared.length, 0);
 });
 
+test("the packs start at two votes — no single-vote option for KES 10", () => {
+  assert.equal(USSD_PACKS[0], 2);
+  assert.deepEqual(
+    USSD_PACKS.map((votes) => votes * 10),
+    [20, 30, 50, 100, 200, 500, 1000],
+  );
+});
+
 test("a valid code opens the packs, and a pack asks for confirmation", async () => {
   const packsRun = harness();
   const packs = await packsRun.dial(["1", "42"]);
   assert.match(packs, /^CON /);
   assert.match(packs, /042 Jane Wanjiku/);
-  assert.match(packs, /Best Female Artist 2026/);
   for (const votes of USSD_PACKS) {
     assert.match(packs, new RegExp(`${votes} votes? KES ${votes * 10}`));
   }
+  // Seven packs have to reach a feature phone in one screen.
+  assert.ok(packs.length <= 160, `pack screen is ${packs.length} characters`);
   assert.equal(packsRun.prepared.length, 0);
 
   const confirmRun = harness();
   const confirm = await confirmRun.dial(["1", "42", "3"]);
   assert.match(confirm, /^CON /);
-  assert.match(confirm, /Pay KES 100 for 10/);
+  assert.match(confirm, /Pay KES 50 for 5/);
+  assert.match(confirm, /Best Female Artist 2026/);
   assert.match(confirm, /1\. Yes/);
   assert.equal(confirmRun.prepared.length, 0, "nothing may be charged before the fan confirms");
 });
@@ -107,8 +117,8 @@ test("confirming sends exactly one order for the chosen pack", async () => {
 
   assert.match(reply, /^END /);
   assert.match(reply, /Payment request sent/);
-  assert.match(reply, /KES 100 for 10/);
-  assert.deepEqual(prepared, [{ artistId: 42, votesAdded: 10, phone: PHONE }]);
+  assert.match(reply, /KES 50 for 5/);
+  assert.deepEqual(prepared, [{ artistId: 42, votesAdded: 5, phone: PHONE }]);
 });
 
 test("cancelling never reaches the payment step", async () => {
