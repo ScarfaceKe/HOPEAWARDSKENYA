@@ -25,7 +25,16 @@ app.use(
   }),
 );
 
-app.use(express.urlencoded({ extended: false }));
+app.use(
+  express.urlencoded({
+    extended: false,
+    // The USSD callback is signed over the raw form body, so it has to be kept
+    // before the parser turns it into an object.
+    verify: (req, _res, buf) => {
+      req.rawBody = buf;
+    },
+  }),
+);
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {

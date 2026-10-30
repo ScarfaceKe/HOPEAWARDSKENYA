@@ -24,6 +24,7 @@ const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
  *  - /api/upload-public      nomination photo upload (needs an upload token)
  *  - /api/megapay/initialize fan starts an M-Pesa vote payment
  *  - /api/megapay/callback   MegaPay server callback (authenticated by secret/IP)
+ *  - /api/ussd/callback      MobileSasa USSD step (authenticated by HMAC signature)
  */
 export const CSRF_EXEMPT_PATHS = new Set([
   "/api/admin/login",
@@ -32,6 +33,7 @@ export const CSRF_EXEMPT_PATHS = new Set([
   "/api/upload-public",
   "/api/megapay/initialize",
   "/api/megapay/callback",
+  "/api/ussd/callback",
 ]);
 
 export const CSRF_HEADER = "x-csrf-token";

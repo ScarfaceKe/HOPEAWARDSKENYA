@@ -6,6 +6,7 @@ import { motion } from "framer-motion";
 import { ArrowLeft, Flame, Share2, Loader2, Lock, Trophy, ChevronLeft, Zap } from "lucide-react";
 import { useCategories } from "@/hooks/use-categories";
 import { useVotingStatus, AWARDS_DATE } from "@/hooks/use-voting-status";
+import { USSD_SHORTCODE, ussdNomineeCode } from "@shared/site";
 
 export default function ArtistDetail() {
   const [, params] = useRoute("/artist/:id");
@@ -181,6 +182,23 @@ VOTING CLOSED
                 <Share2 className="w-4 h-4" />
                 SHARE
               </button>
+
+              {/* Fans without data vote on a feature phone: they need this code,
+                  it is what the USSD rail asks them to type. */}
+              {votingOpen && (
+                <div
+                  className="mt-5 rounded-xl border border-white/10 bg-white/5 p-4 text-center"
+                  data-testid="ussd-vote-card"
+                >
+                  <p className="text-[11px] uppercase tracking-widest text-muted-foreground mb-1">
+                    No data? Vote by USSD
+                  </p>
+                  <p className="font-display text-2xl text-white tracking-wider">{USSD_SHORTCODE}</p>
+                  <p className="text-sm text-primary font-semibold mt-1">
+                    Nominee code: {ussdNomineeCode(artist.id)}
+                  </p>
+                </div>
+              )}
             </motion.div>
           </div>
         </div>

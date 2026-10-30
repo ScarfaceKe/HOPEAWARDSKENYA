@@ -28,6 +28,29 @@ export const SOCIALS = {
 /** Price of a single fan vote, in Kenyan shillings. */
 export const VOTE_PRICE_KES = 10;
 
+/**
+ * The USSD code fans dial to vote without data.
+ * Public, printed on posters — never put a private code here.
+ */
+export const USSD_SHORTCODE = "*246*2345#";
+
+/**
+ * The code a fan types on USSD to pick a nominee. Derived from the artist id so
+ * it is stable forever and needs no extra column, zero-padded to three digits
+ * (`42` always reads as `042`, and ids past 999 simply grow to four digits).
+ */
+export function ussdNomineeCode(artistId: number): string {
+  return String(Math.max(0, Math.trunc(artistId))).padStart(3, "0");
+}
+
+/** Parses what the fan typed back to an artist id, or null. */
+export function parseUssdNomineeCode(raw: string): number | null {
+  const value = raw.trim();
+  if (!/^\d{1,4}$/.test(value)) return null;
+  const id = Number(value);
+  return Number.isInteger(id) && id > 0 ? id : null;
+}
+
 /** Largest number of votes the voting form accepts in one M-Pesa transaction. */
 export const MAX_VOTES_PER_TRANSACTION = 10000;
 

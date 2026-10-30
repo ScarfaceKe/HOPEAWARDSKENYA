@@ -22,6 +22,7 @@ import { parseVoteOrder, voteVelocity, maskPhone, normalizeVotePhone } from "./v
 import { classifySettlement, paymentFailureReason } from "./payment-proof";
 import { issueCsrfToken, requireCsrf } from "./csrf";
 import { verifyTotp, twoFactorEnabled, enrollmentSecret, otpauthUri } from "./totp";
+import { registerUssdRoutes } from "./ussd";
 
 const loginAttempts = new Map<string, { count: number; lockedUntil: number | null }>();
 const MAX_LOGIN_ATTEMPTS = 5;
@@ -281,8 +282,15 @@ export async function registerRoutes(
     })
   );
 
+  // USSD (*246*2345#) is a second front door to the same money rail: fans on
+  // feature phones charge through the same gateway and the same KCB account.
+  // Registered before the CSRF guard because MobileSasa authenticates with an
+  // HMAC signature, not a cookie — and it never touches the MegaPay handlers
+  // below, which stay frozen.
+  registerUssdRoutes(app, storage);
+
   // CSRF: deny-by-default for every non-safe /api request. Only the public
-  // forms and the server-to-server MegaPay callback are exempt (see ./csrf).
+  // forms and the server-to-server MegaPay / USSD callbacks are exempt (see ./csrf).
   app.use(requireCsrf);
 
   app.post("/api/admin/login", (req, res) => {
@@ -1025,6 +1033,14 @@ export async function registerRoutes(
       return null;
     }
   }
+
+  // ─── FROZEN: the live M-Pesa payment path (additive changes only) ─────────
+  // This is the rail fans are paying on and the one KCB settles to. Do not
+  // rename, re-order, "tidy" or reimplement anything in the three routes below:
+  // new providers get their own module and their own route prefix, and they
+  // must not touch this flow. `tests/megapay-lock.test.ts` fails if the route
+  // surface, the collection account, the charge call sites or the CSRF
+  // exemptions change, so a regression here cannot reach production quietly.
 
   /**
    * The account number KCB must receive on paybill 522533 for every payment.
