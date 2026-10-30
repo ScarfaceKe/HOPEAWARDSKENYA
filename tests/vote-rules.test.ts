@@ -112,6 +112,8 @@ test("one live prompt per number: a second prompt is refused until the first set
   if (!second.allowed) {
     assert.equal(second.status, 429);
     assert.match(second.message, /still waiting/i);
+    // Half of the prompt's life has passed, so the fan is told ~30s, not "minutes".
+    assert.match(second.message, /dial again in 30 seconds/);
   }
 
   // Other numbers are not affected.
@@ -122,13 +124,33 @@ test("one live prompt per number: a second prompt is refused until the first set
   assert.equal(guard.check({ ...first, artistId: 9, votesAdded: 1, amountKes: 10 }, t0 + 40_000).allowed, true);
 });
 
+test("a refused attempt leaves no mark behind: the identical order can be retried at once", () => {
+  const guard = new VoteVelocityGuard();
+  const t0 = 1_700_000_000_000;
+  const order = { phone: "254733000004", ip: "5.5.5.5", artistId: 6, votesAdded: 5, amountKes: 50 };
+  assert.equal(guard.check(order, t0).allowed, true);
+  guard.markPromptSent(order.phone, t0);
+
+  // Same pack inside the duplicate window: still the double-tap guard.
+  const doubleTap = guard.check(order, t0 + 3_000);
+  assert.equal(doubleTap.allowed, false);
+
+  // The gateway refused the push, so the order is dead and the fan redials.
+  guard.release(order.phone);
+  assert.equal(
+    guard.check(order, t0 + 5_000).allowed,
+    true,
+    "a dead attempt must clear both the open prompt and the duplicate-tap mark",
+  );
+});
+
 test("a prompt nobody approved stops blocking after OUTSTANDING_PROMPT_MS", () => {
   const guard = new VoteVelocityGuard();
   const t0 = 1_700_000_000_000;
   const order = { phone: "254733000003", ip: "4.4.4.4", artistId: 3, votesAdded: 1, amountKes: 10 };
   assert.equal(guard.check(order, t0).allowed, true);
   guard.markPromptSent("254733000003", t0);
-  assert.equal(guard.check({ ...order, artistId: 4 }, t0 + 60_000).allowed, false);
+  assert.equal(guard.check({ ...order, artistId: 4 }, t0 + 30_000).allowed, false);
   assert.equal(
     guard.check({ ...order, artistId: 5 }, t0 + OUTSTANDING_PROMPT_MS + 1).allowed,
     true,

@@ -147,7 +147,7 @@ test("a refused payment is reported on the handset, not swallowed", async () => 
     preparePayment: async () => ({
       ok: false,
       message:
-        "An M-Pesa prompt from this number is still waiting. Approve it on your phone, then try again in a few minutes.",
+        "An M-Pesa prompt from this number is still waiting. Approve it, or dial again in 30 seconds.",
     }),
   };
   const send = (text: string) =>
@@ -162,7 +162,8 @@ test("a refused payment is reported on the handset, not swallowed", async () => 
   let reply = "";
   for (const step of steps) reply = await send(step);
   assert.match(reply, /^END /);
-  assert.match(reply, /prompt is still waiting/);
+  // The exact countdown must survive the handset wording, not become "minutes".
+  assert.match(reply, /dial again in 30 seconds/);
 });
 
 test("one session cannot inherit another number's nominee", async () => {

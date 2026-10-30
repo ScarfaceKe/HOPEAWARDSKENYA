@@ -30,8 +30,14 @@ export const DUPLICATE_ORDER_WINDOW_MS = 25_000;
  * duplicate can only be undone by the gateway/shortcode owner reversing one.
  * A fan who votes again *after* a prompt settles is never blocked — the mark is
  * cleared the moment the order is credited, refused, or reported failed.
+ *
+ * The window is the prompt's own life, not longer: Safaricom drops an unanswered
+ * STK prompt after 60 seconds, and the handset screen tells the fan to dial
+ * again if no prompt arrived in a minute. Holding the number past that turned a
+ * failed attempt into a lockout — the fan redialled as instructed and was told
+ * to wait “a few minutes” because the mark had not expired yet.
  */
-export const OUTSTANDING_PROMPT_MS = 90_000;
+export const OUTSTANDING_PROMPT_MS = 60_000;
 
 /** Orders allowed from one IP inside a window. */
 export const IP_INIT_WINDOW_MS = 10 * 60_000;
@@ -206,11 +212,16 @@ export class VoteVelocityGuard {
           "Blocked a second M-Pesa prompt while the first was still awaiting approval",
           { phone: maskPhone(phone), artistId, amountKes, ip },
         );
+        const waitSec = Math.max(
+          1,
+          Math.ceil((this.limits.outstandingPromptMs - (now - promptAt)) / 1000),
+        );
         return {
           allowed: false,
           status: 429,
-          message:
-            "An M-Pesa prompt from this number is still waiting. Approve it on your phone, then try again in a few minutes.",
+          // The countdown matters: the fan can only retry once the old prompt is
+          // gone, so say exactly how long that is instead of "a few minutes".
+          message: `An M-Pesa prompt from this number is still waiting. Approve it, or dial again in ${waitSec} seconds.`,
         };
       }
     }
@@ -324,9 +335,15 @@ export class VoteVelocityGuard {
   /**
    * Clears the pending prompt once its order has an answer — credited, refused
    * by the gateway, or reported failed — so the fan is never locked out.
+   *
+   * The duplicate-tap mark goes with it: once the attempt is dead, ordering the
+   * same pack again is a real retry, not a double-click, and telling the fan
+   * "we already sent a prompt" when the gateway refused it is simply wrong.
    */
   release(phone: string) {
     this.prompts.delete(phone);
+    const state = this.phones.get(phone);
+    if (state) state.last = null;
   }
 
   /** Exposed for tests. */

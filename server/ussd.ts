@@ -246,9 +246,10 @@ function paymentError(message: string): string {
   if (/valid Safaricom/i.test(message)) {
     return "This line cannot receive an M-Pesa prompt. Use a Safaricom number.";
   }
-  if (/still waiting|already sent an M-Pesa prompt/i.test(message)) {
-    return "An M-Pesa prompt is still waiting on this line. Approve it, then dial again.";
-  }
+  // The velocity guard already writes a handset-sized sentence with the exact
+  // number of seconds left; rewriting it here is what turned a 40-second wait
+  // into "try again in a few minutes".
+  if (/prompt .*still waiting|already sent an M-Pesa prompt/i.test(message)) return message;
   if (/Too many payment attempts|too many/i.test(message)) {
     return "Too many payment attempts. Wait a few minutes and dial again.";
   }
