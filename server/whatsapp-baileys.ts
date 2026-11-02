@@ -36,6 +36,7 @@ import {
 } from "@whiskeysockets/baileys";
 import pino from "pino";
 import QRCode from "qrcode";
+import { PAIRING_CODE_TTL_MS } from "../shared/pairing";
 import { pool } from "./db";
 import { normalizeVotePhone } from "./vote-rules";
 import {
@@ -62,6 +63,8 @@ export interface WhatsAppStatus {
   qrDataUrl: string | null;
   /** Eight-character code the admin types into WhatsApp → Linked devices. */
   pairingCode: string | null;
+  /** When the current code was issued, so the panel can show its expiry. */
+  pairingCodeIssuedAt: number | null;
   lastError: string | null;
   /** True once a session has been paired at least once (keys in the database). */
   hasSavedSession: boolean;
@@ -72,6 +75,7 @@ let sessionState: WhatsAppSessionState = "idle";
 let latestQr: string | null = null;
 let qrDataUrl: string | null = null;
 let pairingCode: string | null = null;
+let pairingCodeIssuedAt: number | null = null;
 let lastError: string | null = null;
 let mePhone: string | null = null;
 let meName: string | null = null;
@@ -330,18 +334,31 @@ function scheduleReconnect(): void {
   reconnectTimer.unref?.();
 }
 
-async function handleConnectionUpdate(update: Partial<ConnectionState>): Promise<void> {
+async function handleConnectionUpdate(
+  update: Partial<ConnectionState>,
+  source: WASocket,
+): Promise<void> {
+  // A socket that has been replaced must never mutate the live state. A late
+  // close from an old connection used to null out the new one and schedule a
+  // second, competing socket — which is exactly how a readable code turns into
+  // a connection error.
+  if (sock !== source) return;
+
   if (update.qr) {
     latestQr = update.qr;
     sessionState = "qr";
     // Do not clear `pairingCode` here: Baileys emits a fresh QR every ~20 s and
     // wiping the code would make it vanish from the admin panel mid-entry.
     try {
-      qrDataUrl = await QRCode.toDataURL(update.qr, { margin: 1, width: 320 });
+      const dataUrl = await QRCode.toDataURL(update.qr, { margin: 1, width: 320 });
+      if (sock !== source) return;
+      qrDataUrl = dataUrl;
     } catch {
-      qrDataUrl = null;
+      if (sock === source) qrDataUrl = null;
     }
   }
+
+  if (sock !== source) return;
 
   if (update.connection === "connecting" && sessionState !== "qr") {
     sessionState = "connecting";
@@ -352,9 +369,10 @@ async function handleConnectionUpdate(update: Partial<ConnectionState>): Promise
     latestQr = null;
     qrDataUrl = null;
     pairingCode = null;
+    pairingCodeIssuedAt = null;
     lastError = null;
-    mePhone = parsePhone(sock?.user?.id);
-    meName = sock?.user?.name || null;
+    mePhone = parsePhone(source.user?.id);
+    meName = source.user?.name || null;
     hasSavedSession = true;
     registerTransport();
     console.log(`[WHATSAPP] Linked as ${mePhone ?? "unknown number"}. Sending automatically.`);
@@ -363,8 +381,14 @@ async function handleConnectionUpdate(update: Partial<ConnectionState>): Promise
   }
 
   if (update.connection === "close") {
+    if (sock !== source) return;
     unregisterTransport();
     sock = null;
+    // The code can only be completed over this socket. Once it is gone the
+    // digits are dead; keeping them on screen would make the admin type into
+    // a void.
+    pairingCode = null;
+    pairingCodeIssuedAt = null;
     const statusCode = (update.lastDisconnect?.error as { output?: { statusCode?: number } } | undefined)
       ?.output?.statusCode;
 
@@ -383,6 +407,7 @@ async function handleConnectionUpdate(update: Partial<ConnectionState>): Promise
       latestQr = null;
       qrDataUrl = null;
       pairingCode = null;
+      pairingCodeIssuedAt = null;
       lastError = "The linked WhatsApp session ended. Link the awards number again.";
       await clearAuthState();
       console.log("[WHATSAPP] The device was unlinked or the session expired — link the number again.");
@@ -425,13 +450,13 @@ export async function connectWhatsApp(options: { phone?: string } = {}): Promise
   // A socket that is already waiting for a scan must be reused, not duplicated:
   // two sockets on the same keys race for the number and WhatsApp kicks one.
   if (sock && (sessionState === "connecting" || sessionState === "qr")) {
-    if (options.phone) await requestPairingCodeWithRetry(options.phone);
+    if (options.phone) await requestPairingCodeSafely(options.phone);
     return whatsAppStatus();
   }
   if (connecting) {
     const status = await connecting;
     if (options.phone && sock && sessionState !== "connected") {
-      await requestPairingCode(options.phone);
+      await requestPairingCodeSafely(options.phone);
       return whatsAppStatus();
     }
     return status;
@@ -459,6 +484,13 @@ export async function connectWhatsApp(options: { phone?: string } = {}): Promise
         logger,
         version,
         browser: Browsers.ubuntu("Chrome"),
+        // Keep the linking socket alive long enough to open WhatsApp and type
+        // the code. Baileys rotates a QR every `qrTimeout` and closes the
+        // socket when WhatsApp's refs run out; the default (60 s, then 20 s)
+        // ended slow attempts before the phone could finish. With three
+        // minutes per ref the admin has the full code lifetime, and a fresh
+        // code can be requested without rebuilding the connection.
+        qrTimeout: PAIRING_CODE_TTL_MS,
         markOnlineOnConnect: false,
         syncFullHistory: false,
         generateHighQualityLinkPreview: false,
@@ -468,7 +500,7 @@ export async function connectWhatsApp(options: { phone?: string } = {}): Promise
       sock = socket;
       socket.ev.on("creds.update", saveCreds);
       socket.ev.on("connection.update", (update) => {
-        void handleConnectionUpdate(update).catch((err) => {
+        void handleConnectionUpdate(update, socket).catch((err) => {
           console.error("[WHATSAPP] Connection update failed:", err);
         });
       });
@@ -486,9 +518,8 @@ export async function connectWhatsApp(options: { phone?: string } = {}): Promise
     // way to link, so surface the error and leave the connection running.
     if (options.phone) {
       try {
-        await requestPairingCodeWithRetry(options.phone);
+        await requestPairingCodeSafely(options.phone);
       } catch (err) {
-        lastError = err instanceof Error ? err.message : "Could not request a pairing code.";
         connecting = null;
         throw err;
       }
@@ -502,17 +533,36 @@ export async function connectWhatsApp(options: { phone?: string } = {}): Promise
 }
 
 /**
- * Baileys can reject a pairing request in the first second, before the socket
- * has finished opening. One retry after a short wait is enough in practice.
+ * Baileys can reject a pairing request before the socket has finished its
+ * handshake ("Connection Closed", 428). A few short retries are usually
+ * enough; more than that just holds the admin's request open.
  */
 async function requestPairingCodeWithRetry(phone: string): Promise<string> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await requestPairingCode(phone);
+    } catch (err) {
+      lastError = err;
+      const message = err instanceof Error ? err.message : "";
+      if (!/not ready|connection closed|closed|timed out/i.test(message) || attempt === 2) throw err;
+      await sleep(1_500);
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("Could not request a pairing code.");
+}
+
+/** Shows the admin a sentence they can act on, and logs the raw failure. */
+async function requestPairingCodeSafely(phone: string): Promise<string> {
   try {
-    return await requestPairingCode(phone);
+    return await requestPairingCodeWithRetry(phone);
   } catch (err) {
-    const message = err instanceof Error ? err.message : "";
-    if (!/not ready|connection closed|closed|timed out/i.test(message)) throw err;
-    await new Promise((resolve) => setTimeout(resolve, 2_000));
-    return requestPairingCode(phone);
+    console.error("[WHATSAPP] Pairing code request failed:", err);
+    const raw = err instanceof Error ? err.message : "";
+    lastError = /not ready|connection closed|closed|timed out|QR refs|stream errored/i.test(raw)
+      ? "WhatsApp dropped the connection before the code was ready. Press GET PAIRING CODE again in a moment."
+      : raw || "Could not request a pairing code. Try again.";
+    throw new Error(lastError);
   }
 }
 
@@ -527,6 +577,8 @@ export async function requestPairingCode(phone: string): Promise<string> {
   }
   const code = await sock.requestPairingCode(normalized);
   pairingCode = code;
+  pairingCodeIssuedAt = Date.now();
+  lastError = null;
   sessionState = "qr";
   return code;
 }
@@ -539,6 +591,7 @@ export function whatsAppStatus(): WhatsAppStatus {
     name: meName,
     qrDataUrl,
     pairingCode,
+    pairingCodeIssuedAt,
     lastError,
     hasSavedSession,
   };
@@ -569,6 +622,7 @@ export async function logoutWhatsApp(): Promise<void> {
   latestQr = null;
   qrDataUrl = null;
   pairingCode = null;
+  pairingCodeIssuedAt = null;
   lastError = null;
 }
 

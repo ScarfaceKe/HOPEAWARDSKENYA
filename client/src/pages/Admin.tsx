@@ -6,6 +6,7 @@ import { motion } from "framer-motion";
 import { ShieldAlert, ShieldCheck, KeyRound, Activity, Plus, Mic2, Image as ImageIcon, Lock, LogOut, Check, X, Inbox, Search, Trash2, Upload, Users, AlertTriangle, Download, BarChart2, Shuffle, Pencil, Loader2, Tags, Smartphone } from "lucide-react";
 import { CATEGORY_CAP } from "@shared/schema";
 import { USSD_SHORTCODE, ussdNomineeCode } from "@shared/site";
+import { formatPairingCode, pairingCodeSecondsLeft } from "@shared/pairing";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest, csrfFetch } from "@/lib/queryClient";
 import { useCategories } from "@/hooks/use-categories";
@@ -381,6 +382,18 @@ export default function Admin() {
     refetchInterval: 5_000,
   });
   const [waPhone, setWaPhone] = useState("");
+
+  // The linking code is short-lived, so show the admin exactly how long is
+  // left instead of letting them find out on the phone. The ticker only runs
+  // while a code is on screen.
+  const [pairingTick, setPairingTick] = useState(Date.now());
+  useEffect(() => {
+    if (!whatsapp?.pairingCode) return;
+    setPairingTick(Date.now());
+    const timer = setInterval(() => setPairingTick(Date.now()), 1_000);
+    return () => clearInterval(timer);
+  }, [whatsapp?.pairingCode, whatsapp?.pairingCodeIssuedAt]);
+  const pairingSecondsLeft = pairingCodeSecondsLeft(whatsapp?.pairingCodeIssuedAt ?? null, pairingTick);
 
 
   const { data: capacity = [] } = useQuery<any[]>({
@@ -1551,8 +1564,13 @@ export default function Admin() {
                 <>
                   <p className="text-xs text-muted-foreground mt-2 leading-relaxed">
                     Link the awards' WhatsApp number once, here. After that every nominee — the ones already live and every new approval — gets
-                    the congratulations message and their voting link with no clicks from you. In WhatsApp, open Linked devices → Link with
-                    phone number, then enter the code below.
+                    the congratulations message and their voting link with no clicks from you.
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-2 leading-relaxed">
+                    Before you ask for a code, open WhatsApp on the awards phone → <span className="text-white">Settings → Linked devices →
+                    Link with phone number</span> and keep that screen open. Then press the button and type all 8 characters — WhatsApp adds
+                    the dash. Codes are short-lived, and asking again replaces the previous one, so use only the code shown now and type it
+                    straight away.
                   </p>
                   <div className="flex flex-col sm:flex-row gap-2 mt-3">
                     <input
@@ -1568,13 +1586,22 @@ export default function Admin() {
                       data-testid="button-whatsapp-connect"
                       className="px-4 py-2.5 bg-secondary text-black rounded-xl text-xs font-bold disabled:opacity-50 hover:bg-secondary/90"
                     >
-                      {connectWhatsAppMutation.isPending ? "STARTING…" : "GET PAIRING CODE"}
+                      {connectWhatsAppMutation.isPending
+                        ? "STARTING…"
+                        : whatsapp?.pairingCode
+                          ? "GET A NEW CODE"
+                          : "GET PAIRING CODE"}
                     </button>
                   </div>
                   {whatsapp?.pairingCode && (
                     <div className="mt-3 bg-secondary/10 border border-secondary/30 rounded-xl p-3" data-testid="whatsapp-pairing-code">
                       <p className="text-[11px] font-bold text-secondary/80">ENTER IN WHATSAPP → LINKED DEVICES → LINK WITH PHONE NUMBER</p>
-                      <p className="font-mono text-2xl tracking-[0.2em] text-secondary mt-1">{whatsapp.pairingCode}</p>
+                      <p className="font-mono text-2xl tracking-[0.2em] text-secondary mt-1">{formatPairingCode(whatsapp.pairingCode)}</p>
+                      <p className={`text-[11px] mt-1 ${pairingSecondsLeft === 0 ? "text-amber-400 font-bold" : "text-muted-foreground"}`}>
+                        {pairingSecondsLeft === 0
+                          ? "This code may have expired — press GET A NEW CODE and type it straight away."
+                          : `Type all 8 characters — WhatsApp adds the dash.${pairingSecondsLeft !== null ? ` Expires in ${Math.floor(pairingSecondsLeft / 60)}:${String(pairingSecondsLeft % 60).padStart(2, "0")}.` : ""}`}
+                      </p>
                     </div>
                   )}
                   {whatsapp?.qrDataUrl && !whatsapp?.pairingCode && (
