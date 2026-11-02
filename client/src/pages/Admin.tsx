@@ -368,7 +368,10 @@ export default function Admin() {
     enabled: isAuthed,
   });
   const linkByRequest = new Map<number, any>((nomineeLinks?.items ?? []).map((i: any) => [i.requestId, i]));
-  const linksMissing = (nomineeLinks?.items ?? []).filter((i: any) => i.notification?.status !== "sent").length;
+  const linksSent = (nomineeLinks?.items ?? []).filter((i: any) => i.notification?.status === "sent").length;
+  const linksMissing = (nomineeLinks?.items ?? []).filter(
+    (i: any) => i.notification?.status !== "sent" && i.notification?.status !== "skipped",
+  ).length;
 
   // The posters' WhatsApp number is linked once; everything after that sends
   // itself. Poll while unlinked so the pairing code / QR stays current.
@@ -1589,7 +1592,7 @@ export default function Admin() {
               <div className="bg-black/40 border border-white/10 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center gap-3" data-testid="nominee-links-banner">
                 <div className="flex-1">
                   <p className="text-sm font-bold text-white">
-                    {nomineeLinks.items.length - linksMissing} of {nomineeLinks.items.length} nominees have their voting link sent
+                    {linksSent} of {nomineeLinks.items.length} nominees have their voting link sent
                   </p>
                   <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
                     {nomineeLinks.connected
@@ -1701,7 +1704,11 @@ export default function Admin() {
                           </button>
                           {linkInfo?.notification && !linkSent && (
                             <span className="text-[11px] text-amber-400/80" data-testid={`link-status-approved-${req.id}`}>
-                              {linkInfo.notification.status === "not_configured" ? "not sent yet" : linkInfo.notification.status}
+                              {linkInfo.notification.status === "not_configured"
+                                ? "not sent yet"
+                                : linkInfo.notification.status === "skipped"
+                                  ? "already messaged on this number"
+                                  : linkInfo.notification.status}
                             </span>
                           )}
                         </div>

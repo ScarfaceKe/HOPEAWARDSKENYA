@@ -284,7 +284,10 @@ test("the automatic run is capped so a link batch can never blast the list", () 
 
 // ─── Transport: the linked session is used, and every attempt is recorded ────
 
-function fakeStorage(records: any[]): IStorage {
+function fakeStorage(
+  records: any[],
+  alreadyMessaged: (phone: string, exceptRequestId: number) => boolean = () => false,
+): IStorage {
   return {
     getCategory: async (id: string) => ({ id, name: "Kamba Male Artist of the Year 2026" }),
     findArtistByNameCategory: async () => ({ id: 42 }),
@@ -292,6 +295,8 @@ function fakeStorage(records: any[]): IStorage {
       records.push(input);
       return { id: records.length, ...input };
     },
+    hasSentNomineeNotificationToPhone: async (phone: string, exceptRequestId: number) =>
+      alreadyMessaged(phone, exceptRequestId),
   } as unknown as IStorage;
 }
 
@@ -372,4 +377,58 @@ test("a landline is never attempted on WhatsApp", async () => {
 
   assert.equal(notice.status, "failed");
   assert.equal(called, false);
+});
+
+test("the same phone only ever gets one message, even when a nominee was approved twice", async () => {
+  const records: any[] = [];
+  const sentTo: string[] = [];
+  let hasSent = false;
+
+  // Mirrors the database: once a `sent` row exists for this number, any other
+  // request with the same phone is reported as already messaged.
+  const storage = fakeStorage(
+    records,
+    (phone, exceptRequestId) => hasSent && phone === "254712345678" && exceptRequestId !== 41,
+  );
+  const transport: LiveWhatsAppTransport = {
+    name: "baileys",
+    send: async (to) => {
+      hasSent = true;
+      sentTo.push(to);
+      return { ok: true };
+    },
+  };
+
+  const first = await notifyNominee(storage, { ...TARGET, requestId: 41 }, {
+    now: OPEN_NOW,
+    transport,
+    config: null,
+  });
+  assert.equal(first.status, "sent");
+
+  const second = await notifyNominee(storage, { ...TARGET, requestId: 42 }, {
+    now: OPEN_NOW,
+    transport,
+    config: null,
+  });
+
+  assert.equal(sentTo.length, 1, "the phone must receive exactly one message");
+  assert.equal(second.status, "skipped");
+  assert.match(second.error ?? "", /already received/);
+  assert.equal(records.at(-1).status, "skipped");
+});
+
+test("resending the link for the same nomination is still allowed", async () => {
+  const records: any[] = [];
+  // The only `sent` row belongs to the request being resent, so the guard must
+  // not block a deliberate resend from the admin card.
+  const storage = fakeStorage(records, (_phone, exceptRequestId) => exceptRequestId !== 42);
+  const notice = await notifyNominee(storage, TARGET, {
+    now: OPEN_NOW,
+    transport: { name: "baileys", send: async () => ({ ok: true }) },
+    config: null,
+  });
+
+  assert.equal(notice.status, "sent");
+  assert.equal(records.at(-1).status, "sent");
 });

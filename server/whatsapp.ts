@@ -407,6 +407,20 @@ export async function notifyNominee(
     return notice("skipped", { error });
   }
 
+  // One message per phone number. A nominee can end up approved on two request
+  // rows (same person, same number) and both would queue separately; the second
+  // is closed as skipped so it never retries. A deliberate resend for this same
+  // request is still allowed.
+  const alreadyMessaged = await storage
+    .hasSentNomineeNotificationToPhone(phone, requestId)
+    .catch(() => false);
+  if (alreadyMessaged) {
+    const error =
+      "This number already received a voting link for another nomination, so it was not messaged again.";
+    await record("skipped", { error });
+    return notice("skipped", { error });
+  }
+
   if (!transport && !config) {
     const error =
       "WhatsApp is not linked yet. Scan the QR or use a pairing code in Admin → WhatsApp automation (or set WHATSAPP_TOKEN / WHATSAPP_PHONE_NUMBER_ID), then the message goes out by itself.";

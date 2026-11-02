@@ -21,7 +21,7 @@ import {
   type PendingPayment,
   CATEGORY_CAP,
 } from "@shared/schema";
-import { eq, and, sql, lt, gte, inArray, desc, asc } from "drizzle-orm";
+import { eq, and, sql, lt, gte, inArray, desc, asc, ne } from "drizzle-orm";
 import { VOTING_START, VOTING_END } from "@shared/dates";
 
 // Re-exported so existing server imports (`import { CATEGORY_CAP } from "./storage"`)
@@ -88,6 +88,12 @@ export interface IStorage {
   listNomineeNotifications(limit?: number): Promise<NomineeNotification[]>;
   /** True once this nomination has received a message that WhatsApp accepted. */
   hasSentNomineeNotification(requestId: number): Promise<boolean>;
+  /**
+   * True once this phone has been messaged for a *different* nomination. The
+   * same nominee can be approved on more than one request row; nobody should
+   * receive the congratulation twice just because of a duplicate nomination.
+   */
+  hasSentNomineeNotificationToPhone(phone: string, exceptRequestId: number): Promise<boolean>;
 }
 
 export interface NomineeNotificationInput {
@@ -533,6 +539,21 @@ export class DatabaseStorage implements IStorage {
       .select({ id: nomineeNotifications.id })
       .from(nomineeNotifications)
       .where(and(eq(nomineeNotifications.requestId, requestId), eq(nomineeNotifications.status, "sent")))
+      .limit(1);
+    return Boolean(row);
+  }
+
+  async hasSentNomineeNotificationToPhone(phone: string, exceptRequestId: number): Promise<boolean> {
+    const [row] = await db
+      .select({ id: nomineeNotifications.id })
+      .from(nomineeNotifications)
+      .where(
+        and(
+          eq(nomineeNotifications.phone, phone),
+          eq(nomineeNotifications.status, "sent"),
+          ne(nomineeNotifications.requestId, exceptRequestId),
+        ),
+      )
       .limit(1);
     return Boolean(row);
   }

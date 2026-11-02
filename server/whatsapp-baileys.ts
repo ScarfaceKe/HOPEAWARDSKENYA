@@ -16,13 +16,19 @@
 // gets banned, so every automated run is throttled (a few seconds between sends,
 // batch capped) instead of blasting the whole list at once.
 
-import makeWASocket, {
+// `makeWASocket` is imported by name on purpose. The production server is
+// bundled to CommonJS with this package left external, and esbuild's Node
+// interop sets `.default` to the whole module object — so a default import
+// compiled to "(0, x.default)(…)" and failed at runtime with
+// "(0, Ke.default) is not a function". The named export works in both builds.
+import {
   Browsers,
   BufferJSON,
   DisconnectReason,
   fetchLatestBaileysVersion,
   initAuthCreds,
   makeCacheableSignalKeyStore,
+  makeWASocket,
   type AuthenticationCreds,
   type AuthenticationState,
   type ConnectionState,
