@@ -71,6 +71,11 @@ Optional-but-recommended environment variables (production values belong in the 
 | `MEGAPAY_CALLBACK_IPS` | Comma-separated allowlist of gateway IPs, used when MegaPay cannot send a secret. |
 | `ALERT_WEBHOOK_URL` | HTTPS webhook (Slack-compatible `{text}` payload) for warning/critical alerts. |
 | `MOBILESASA_USSD_SECRET` | Required for USSD voting. Portal secret under Settings → Webhooks; the callback is rejected without it. |
+| `WHATSAPP_TOKEN` | Meta WhatsApp Cloud API token. With `WHATSAPP_PHONE_NUMBER_ID`, approving a nominee sends their voting link automatically. |
+| `WHATSAPP_PHONE_NUMBER_ID` | The WhatsApp Business number's id from the Meta app. |
+| `WHATSAPP_TEMPLATE_NAME` | Optional approved template. Business-initiated messages need one outside the 24-hour window. Body parameters, in order: nominee name, category, voting link. |
+| `WHATSAPP_TEMPLATE_LANG` | Optional template language code (default `en_US`). |
+| `WHATSAPP_LOG_LEVEL` | Optional Baileys protocol log level (default `silent`). Set `warn` while diagnosing a failed link. |
 
 ### USSD voting (`*246*2345#`) — MobileSasa
 
@@ -89,3 +94,22 @@ Optional-but-recommended environment variables (production values belong in the 
 Without `MEGAPAY_CALLBACK_SECRET` or `MEGAPAY_CALLBACK_IPS` the callback stays open and the server
 logs a loud warning — anyone who can reach it could claim a payment succeeded, so set one of them
 before voting opens.
+
+### Nominee voting links (WhatsApp) — `server/whatsapp.ts` + `server/whatsapp-baileys.ts`
+
+- `server/whatsapp.ts` owns the link (`/n/<request id>`), the congratulation message and the single
+  send path (`notifyNominee`). Approval, the per-nominee button and the automatic run all call it,
+  so a nominee can never receive two different links.
+- `server/whatsapp-baileys.ts` is the transport: the awards' own WhatsApp number, linked once from
+  Admin → WhatsApp automation with a pairing code or QR. It is an unofficial WhatsApp Web client —
+  a number that spams strangers gets banned, so runs are throttled (20 per batch, 6–13 s apart,
+  every two minutes) and a bad number is retried at most three times.
+- The session must survive a deploy: the Baileys keys live in `whatsapp_auth`, never on disk. Do not
+  switch this to `useMultiFileAuthState` — the host's disk is ephemeral, and re-pairing on every
+  deploy would break the automation.
+- This is automation, not buttons: approving a nominee messages them immediately, and a sweep after
+  the number is linked (then every two minutes) covers everyone approved earlier who has no `sent`
+  row. `nominee_notifications` is the ledger — check it before sending so nobody gets two messages.
+- `WHATSAPP_TOKEN` / `WHATSAPP_PHONE_NUMBER_ID` remain as an optional Cloud API fallback. Baileys
+  needs no template and no Meta review; the Cloud API path still does.
+- Message copy must never mention the enforced close time (00:15). Only `VOTING_CLOSE_TEXT`.

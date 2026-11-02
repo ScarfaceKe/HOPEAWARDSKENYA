@@ -78,6 +78,34 @@ export async function runMigrations() {
     `);
 
     await client.query(`
+      CREATE TABLE IF NOT EXISTS nominee_notifications (
+        id SERIAL PRIMARY KEY,
+        request_id INTEGER NOT NULL,
+        artist_id INTEGER,
+        phone TEXT NOT NULL,
+        link TEXT NOT NULL,
+        message TEXT NOT NULL,
+        channel TEXT NOT NULL DEFAULT 'whatsapp',
+        status TEXT NOT NULL,
+        provider TEXT,
+        provider_message_id TEXT,
+        error TEXT,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        sent_at TIMESTAMP
+      );
+    `);
+
+    // Baileys keeps its WhatsApp Web keys here so a linked number survives a
+    // deploy (Render's disk is ephemeral). Deleting a row here unlinks a device.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS whatsapp_auth (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+    `);
+
+    await client.query(`
       CREATE TABLE IF NOT EXISTS admin_audit_log (
         id SERIAL PRIMARY KEY,
         action TEXT NOT NULL,
@@ -199,6 +227,11 @@ export async function runMigrations() {
     await client.query(`
       CREATE INDEX IF NOT EXISTS admin_audit_log_created_at_idx
         ON admin_audit_log (created_at DESC);
+    `);
+    // "Has this nominee been messaged?" is asked per request, newest first.
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS nominee_notifications_request_id_idx
+        ON nominee_notifications (request_id, created_at DESC);
     `);
     console.log("[migrate] Tables and DB indexes applied.");
   } catch (err) {

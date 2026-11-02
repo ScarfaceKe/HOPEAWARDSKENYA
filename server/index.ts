@@ -3,7 +3,7 @@ import compression from "compression";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
-import { seedInitialData } from "./storage";
+import { seedInitialData, storage } from "./storage";
 import { runMigrations } from "./migrate";
 
 const app = express();
@@ -116,6 +116,13 @@ app.use((req, res, next) => {
     },
     () => {
       log(`serving on port ${port}`);
+
+      // If a WhatsApp number was linked before, reconnect and let the automatic
+      // run reach nominees who were already on the site. Never blocks startup:
+      // a WhatsApp outage must not take the awards site down with it.
+      import("./whatsapp-baileys")
+        .then(({ startWhatsAppAutomation }) => startWhatsAppAutomation(storage))
+        .catch((err) => console.error("[startup] WhatsApp automation unavailable:", err));
     },
   );
 })().catch((err) => {

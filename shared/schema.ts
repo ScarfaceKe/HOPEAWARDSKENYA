@@ -248,6 +248,34 @@ export const uploadedImages = pgTable("uploaded_images", {
 
 export type UploadedImage = typeof uploadedImages.$inferSelect;
 
+/**
+ * One row per attempt to put a nominee's voting link in their own hands on
+ * WhatsApp. Kept in the database (not memory) so a resend is a decision the
+ * admin can see, and so a restart never looks like "nobody was ever messaged".
+ *
+ * `status`: `sent` · `failed` · `not_configured` (no Meta credentials yet, the
+ * message is waiting for a one-tap `wa.me` send) · `skipped` (voting closed).
+ */
+export const nomineeNotifications = pgTable("nominee_notifications", {
+  id: serial("id").primaryKey(),
+  requestId: integer("request_id").notNull(),
+  artistId: integer("artist_id"),
+  /** E.164 without the plus, e.g. 254712345678. */
+  phone: text("phone").notNull(),
+  link: text("link").notNull(),
+  /** The exact text sent (or handed to the one-tap fallback). */
+  message: text("message").notNull(),
+  channel: text("channel").notNull().default("whatsapp"),
+  status: text("status").notNull(),
+  provider: text("provider"),
+  providerMessageId: text("provider_message_id"),
+  error: text("error"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  sentAt: timestamp("sent_at"),
+});
+
+export type NomineeNotification = typeof nomineeNotifications.$inferSelect;
+
 export type ArtistResponse = Artist;
 export type ArtistsListResponse = Artist[];
 

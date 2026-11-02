@@ -361,6 +361,25 @@ export default function Admin() {
     enabled: isAuthed,
   });
 
+  // Every approved nominee's own voting link, the exact message they would
+  // receive, and whether it has already gone out.
+  const { data: nomineeLinks } = useQuery<{ configured: boolean; connected?: boolean; votingOpen: boolean; items: any[] }>({
+    queryKey: ["/api/admin/nominee-links"],
+    enabled: isAuthed,
+  });
+  const linkByRequest = new Map<number, any>((nomineeLinks?.items ?? []).map((i: any) => [i.requestId, i]));
+  const linksMissing = (nomineeLinks?.items ?? []).filter((i: any) => i.notification?.status !== "sent").length;
+
+  // The posters' WhatsApp number is linked once; everything after that sends
+  // itself. Poll while unlinked so the pairing code / QR stays current.
+  const { data: whatsapp, refetch: refetchWhatsApp } = useQuery<any>({
+    queryKey: ["/api/admin/whatsapp"],
+    enabled: isAuthed,
+    refetchInterval: 5_000,
+  });
+  const [waPhone, setWaPhone] = useState("");
+
+
   const { data: capacity = [] } = useQuery<any[]>({
     queryKey: ["/api/categories/capacity"],
     enabled: isAuthed,
@@ -374,6 +393,88 @@ export default function Admin() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/requests"] });
       queryClient.invalidateQueries({ queryKey: ["/api/categories/capacity"] });
+    },
+  });
+
+  const sendNomineeLinkMutation = useMutation({
+    mutationFn: async (requestId: number) => {
+      const res = await apiRequest("POST", `/api/admin/nominee-links/${requestId}/send`);
+      return (await res.json()) as any;
+    },
+    onSuccess: (notice: any) => {
+      toast({
+        title: notice?.status === "sent" ? "LINK SENT" : "LINK READY",
+        description:
+          notice?.status === "sent"
+            ? "The nominee has their voting link on WhatsApp."
+            : notice?.error || "Use the one-tap WhatsApp button to send it.",
+        className: notice?.status === "sent" ? "bg-secondary/90 text-black border-none font-display" : undefined,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/nominee-links"] });
+    },
+    onError: (err: any) => {
+      toast({ title: "Send failed", description: err?.message || "Try again.", variant: "destructive" });
+    },
+  });
+
+  const connectWhatsAppMutation = useMutation({
+    mutationFn: async (phone?: string) => {
+      const res = await apiRequest("POST", "/api/admin/whatsapp/connect", phone ? { phone } : {});
+      return (await res.json()) as any;
+    },
+    onSettled: () => {
+      // Even a failed pairing request can leave a QR waiting, so always refresh.
+      refetchWhatsApp();
+    },
+    onError: (err: any) => {
+      toast({ title: "Could not start WhatsApp", description: err?.message || "Try again.", variant: "destructive" });
+    },
+  });
+
+  const logoutWhatsAppMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/admin/whatsapp/logout");
+      return (await res.json()) as any;
+    },
+    onSuccess: () => {
+      refetchWhatsApp();
+      toast({ title: "WHATSAPP UNLINKED", description: "The number will no longer send automatically." });
+    },
+  });
+
+  const sweepWhatsAppMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/admin/whatsapp/sweep");
+      return (await res.json()) as any;
+    },
+    onSuccess: (data: any) => {
+      toast({
+        title: "WHATSAPP RUN DONE",
+        description: `${data?.sent ?? 0} sent · ${data?.failed ?? 0} failed · ${data?.remaining ?? 0} still to go.`,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/nominee-links"] });
+      refetchWhatsApp();
+    },
+    onError: (err: any) => {
+      toast({ title: "Send failed", description: err?.message || "Try again.", variant: "destructive" });
+    },
+  });
+
+  const sendAllLinksMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/admin/nominee-links/send-all");
+      return (await res.json()) as any;
+    },
+    onSuccess: (data: any) => {
+      toast({
+        title: "WHATSAPP BATCH DONE",
+        description: `${data?.sent ?? 0} sent · ${data?.failed ?? 0} failed · ${data?.remaining ?? 0} still to go.`,
+        className: "bg-secondary/90 text-black border-none font-display",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/nominee-links"] });
+    },
+    onError: (err: any) => {
+      toast({ title: "Batch failed", description: err?.message || "Try again.", variant: "destructive" });
     },
   });
 
@@ -1403,6 +1504,112 @@ export default function Admin() {
               </div>
             </div>
 
+            <div className="bg-black/40 border border-secondary/25 rounded-2xl p-4" data-testid="whatsapp-automation">
+              <div className="flex flex-wrap items-center gap-2">
+                <Smartphone className="w-4 h-4 text-secondary" />
+                <p className="text-sm font-bold text-white">WHATSAPP AUTOMATION</p>
+                <span
+                  data-testid="whatsapp-state"
+                  className={`inline-flex items-center gap-1.5 text-[11px] font-bold px-2 py-0.5 rounded-full ${
+                    whatsapp?.connected ? "bg-emerald-500/15 text-emerald-400" : "bg-amber-500/15 text-amber-400"
+                  }`}
+                >
+                  <span className={`w-1.5 h-1.5 rounded-full ${whatsapp?.connected ? "bg-emerald-400" : "bg-amber-400"}`} />
+                  {whatsapp?.connected ? `LINKED +${whatsapp.phone ?? ""}` : "NOT LINKED"}
+                </span>
+              </div>
+
+              {whatsapp?.connected ? (
+                <>
+                  <p className="text-xs text-muted-foreground mt-2 leading-relaxed">
+                    Every nominee is congratulated and sent their voting link automatically — new approvals straight away, and everyone
+                    already on the site a few at a time ({linksMissing} left). No clicking needed; keep the linked phone online.
+                  </p>
+                  <div className="flex flex-wrap gap-2 mt-3">
+                    <button
+                      onClick={() => sweepWhatsAppMutation.mutate()}
+                      disabled={sweepWhatsAppMutation.isPending || linksMissing === 0}
+                      data-testid="button-whatsapp-sweep"
+                      className="px-4 py-2.5 bg-secondary text-black rounded-xl text-xs font-bold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-secondary/90"
+                    >
+                      {sweepWhatsAppMutation.isPending ? "SENDING…" : "SEND THE REST NOW"}
+                    </button>
+                    <button
+                      onClick={() => logoutWhatsAppMutation.mutate()}
+                      disabled={logoutWhatsAppMutation.isPending}
+                      data-testid="button-whatsapp-logout"
+                      className="px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-xs font-bold text-muted-foreground hover:text-white"
+                    >
+                      UNLINK
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className="text-xs text-muted-foreground mt-2 leading-relaxed">
+                    Link the awards' WhatsApp number once, here. After that every nominee — the ones already live and every new approval — gets
+                    the congratulations message and their voting link with no clicks from you. In WhatsApp, open Linked devices → Link with
+                    phone number, then enter the code below.
+                  </p>
+                  <div className="flex flex-col sm:flex-row gap-2 mt-3">
+                    <input
+                      value={waPhone}
+                      onChange={(e) => setWaPhone(e.target.value)}
+                      placeholder="Awards number, e.g. 0712 345 678"
+                      data-testid="input-whatsapp-phone"
+                      className="flex-1 bg-black/50 border border-white/10 rounded-xl py-2.5 px-3 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-secondary"
+                    />
+                    <button
+                      onClick={() => connectWhatsAppMutation.mutate(waPhone.trim() || undefined)}
+                      disabled={connectWhatsAppMutation.isPending}
+                      data-testid="button-whatsapp-connect"
+                      className="px-4 py-2.5 bg-secondary text-black rounded-xl text-xs font-bold disabled:opacity-50 hover:bg-secondary/90"
+                    >
+                      {connectWhatsAppMutation.isPending ? "STARTING…" : "GET PAIRING CODE"}
+                    </button>
+                  </div>
+                  {whatsapp?.pairingCode && (
+                    <div className="mt-3 bg-secondary/10 border border-secondary/30 rounded-xl p-3" data-testid="whatsapp-pairing-code">
+                      <p className="text-[11px] font-bold text-secondary/80">ENTER IN WHATSAPP → LINKED DEVICES → LINK WITH PHONE NUMBER</p>
+                      <p className="font-mono text-2xl tracking-[0.2em] text-secondary mt-1">{whatsapp.pairingCode}</p>
+                    </div>
+                  )}
+                  {whatsapp?.qrDataUrl && !whatsapp?.pairingCode && (
+                    <div className="mt-3 flex items-start gap-3">
+                      <img src={whatsapp.qrDataUrl} alt="WhatsApp pairing QR" className="w-36 h-36 rounded-lg bg-white p-1" />
+                      <p className="text-[11px] text-muted-foreground">Or scan this in WhatsApp → Linked devices.</p>
+                    </div>
+                  )}
+                  {whatsapp?.lastError && <p className="text-[11px] text-amber-400 mt-2">{whatsapp.lastError}</p>}
+                </>
+              )}
+            </div>
+
+            {nomineeLinks && nomineeLinks.items.length > 0 && (
+              <div className="bg-black/40 border border-white/10 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center gap-3" data-testid="nominee-links-banner">
+                <div className="flex-1">
+                  <p className="text-sm font-bold text-white">
+                    {nomineeLinks.items.length - linksMissing} of {nomineeLinks.items.length} nominees have their voting link sent
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                    {nomineeLinks.connected
+                      ? "Every new approval is messaged by itself. This reaches anyone still waiting, without pressing anything on each card."
+                      : nomineeLinks.configured
+                        ? "Automatic sending is configured but not connected right now — connect the number above, or send this batch."
+                        : "Link the awards WhatsApp number above and every nominee's message sends itself. Until then, each card has a one-tap WhatsApp button."}
+                  </p>
+                </div>
+                <button
+                  onClick={() => sendAllLinksMutation.mutate()}
+                  disabled={linksMissing === 0 || !nomineeLinks.configured || sendAllLinksMutation.isPending}
+                  data-testid="button-send-all-nominee-links"
+                  className="px-4 py-2.5 bg-secondary text-black rounded-xl text-xs font-bold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-secondary/90 transition-all shrink-0"
+                >
+                  {sendAllLinksMutation.isPending ? "SENDING…" : `SEND TO ${linksMissing} MISSING`}
+                </button>
+              </div>
+            )}
+
             <div className="flex flex-col sm:flex-row gap-3 mb-4">
               <select
                 value={approvedCategory}
@@ -1449,6 +1656,8 @@ export default function Admin() {
               }
               return filtered.map((req: any) => {
                 const cap = capMap.get(req.category);
+                const linkInfo = linkByRequest.get(req.id);
+                const linkSent = linkInfo?.notification?.status === "sent";
                 return (
                   <div key={req.id} data-testid={`approved-card-${req.id}`} className="bg-card border border-secondary/20 rounded-2xl p-6 flex flex-col sm:flex-row gap-4">
                     <div className="w-24 h-24 rounded-xl overflow-hidden border border-white/10 shrink-0">
@@ -1470,14 +1679,31 @@ export default function Admin() {
                             📞 {req.submitterPhone}
                           </a>
                           <a
-                            href={`https://wa.me/${req.submitterPhone.replace(/[^0-9]/g, '').replace(/^0/, '254')}`}
+                            href={linkInfo?.waLink || `https://wa.me/${req.submitterPhone.replace(/[^0-9]/g, '').replace(/^0/, '254')}`}
                             target="_blank"
                             rel="noopener"
                             data-testid={`link-whatsapp-approved-${req.id}`}
                             className="inline-flex items-center gap-2 px-3 py-2 bg-secondary/15 border border-secondary/40 rounded-lg text-secondary text-sm font-bold hover:bg-secondary/25"
+                            title="Open WhatsApp with this nominee's voting link already written"
                           >
                             WhatsApp
                           </a>
+                          <button
+                            onClick={() => sendNomineeLinkMutation.mutate(req.id)}
+                            disabled={!nomineeLinks?.configured || sendNomineeLinkMutation.isPending}
+                            data-testid={`button-send-link-approved-${req.id}`}
+                            className="inline-flex items-center gap-2 px-3 py-2 bg-secondary/15 border border-secondary/40 rounded-lg text-secondary text-sm font-bold hover:bg-secondary/25 disabled:opacity-50 disabled:cursor-not-allowed"
+                            title={nomineeLinks?.configured
+                              ? "Send the voting link to this nominee on WhatsApp now — resending is allowed"
+                              : "Link the awards WhatsApp number above first; meanwhile the WhatsApp button opens the same message"}
+                          >
+                            {linkSent ? "RESEND LINK" : "SEND LINK"}
+                          </button>
+                          {linkInfo?.notification && !linkSent && (
+                            <span className="text-[11px] text-amber-400/80" data-testid={`link-status-approved-${req.id}`}>
+                              {linkInfo.notification.status === "not_configured" ? "not sent yet" : linkInfo.notification.status}
+                            </span>
+                          )}
                         </div>
                       ) : (
                         <p className="text-xs text-muted-foreground/60 mt-2">No phone on file</p>

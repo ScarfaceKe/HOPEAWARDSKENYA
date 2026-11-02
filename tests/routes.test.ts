@@ -89,6 +89,28 @@ test("CSRF: the token from before sign-in no longer authorises writes", async ()
   assert.equal(stale.status, 403);
 });
 
+test("WhatsApp automation status is admin-only and honest about not being linked", async () => {
+  const anonymous = await get("/api/admin/whatsapp");
+  assert.equal(anonymous.status, 401);
+
+  const { cookie } = await signIn();
+  const res = await get("/api/admin/whatsapp", { cookie });
+  assert.equal(res.status, 200);
+
+  const body = (await res.json()) as {
+    connected: boolean;
+    state: string;
+    hasSavedSession: boolean;
+    configured: boolean;
+  };
+  // No number has been linked in this process, so the panel must not pretend
+  // messages are going out.
+  assert.equal(body.connected, false);
+  assert.equal(body.hasSavedSession, false);
+  assert.equal(typeof body.state, "string");
+  assert.equal(typeof body.configured, "boolean");
+});
+
 test("CSRF: the approve flow's POST /api/artists is refused bare and cleared with the token", async () => {
   // Regression for "I cannot approve a nominee": the admin panel created the
   // artist through its own fetch, which carried no x-csrf-token, so the valid

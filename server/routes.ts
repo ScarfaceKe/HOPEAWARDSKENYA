@@ -8,12 +8,13 @@ import { pool } from "./db";
 import { storage, CATEGORY_CAP, VOTING_START, VOTING_END } from "./storage";
 import { apiCache, imgCache, TTL_API, TTL_IMG } from "./cache";
 import { api } from "@shared/routes";
-import { insertRequestSchema, CATEGORIES, type ArtistResponse, type AwardCategoryOption, type PendingPayment } from "@shared/schema";
+import { insertRequestSchema, CATEGORIES, type ArtistResponse, type AwardCategoryOption, type PendingPayment, type NomineeNotification } from "@shared/schema";
 import { DISCOVERY_TAGS, categoriesWithTag, type DiscoveryTagId } from "@shared/categoryContent";
 import {
   collectionAccountNumber,
   PENDING_PAYMENT_RETENTION_DAYS,
   VOTE_PRICE_KES,
+  ussdNomineeCode,
 } from "@shared/site";
 import { z } from "zod";
 import crypto from "crypto";
@@ -23,6 +24,14 @@ import { classifySettlement, paymentFailureReason } from "./payment-proof";
 import { issueCsrfToken, requireCsrf } from "./csrf";
 import { verifyTotp, twoFactorEnabled, enrollmentSecret, otpauthUri } from "./totp";
 import { registerUssdRoutes } from "./ussd";
+import {
+  buildNomineeMessage,
+  nomineeVotingLink,
+  notifyNominee,
+  votingState,
+  waLinkFor,
+  whatsappConfig,
+} from "./whatsapp";
 
 const loginAttempts = new Map<string, { count: number; lockedUntil: number | null }>();
 const MAX_LOGIN_ATTEMPTS = 5;
@@ -1914,6 +1923,19 @@ export async function registerRoutes(
       updated = await storage.updateRequestStatus(id, status);
       if (updated && before && before.status !== status) {
         audit(req, `nomination_${status}`, "request", id, `Nomination ${updated.name} went from ${before.status} to ${status}`);
+
+        // The nominee's own voting link goes out the moment they go live. Not
+        // awaited: Meta can take seconds and approving must never wait on
+        // WhatsApp. The attempt is recorded either way, so a failure is visible
+        // in the dashboard instead of lost.
+        if (status === "approved") {
+          void notifyNominee(storage, {
+            requestId: updated.id,
+            name: updated.name,
+            category: updated.category,
+            submitterPhone: updated.submitterPhone,
+          }).catch((err) => console.error("[WHATSAPP] Nominee link failed:", err));
+        }
       }
     } else {
       updated = await storage.getRequest(id);
@@ -1923,6 +1945,183 @@ export async function registerRoutes(
       return res.status(404).json({ message: "Request not found" });
     }
     res.json(updated);
+  });
+
+  // ─── Admin: nominee voting links on WhatsApp ──────────────────────────────
+  // The link is the product here; Cloud API, the one-tap `wa.me` fallback and
+  // the bulk action are only delivery. All three go through the same builder in
+  // `server/whatsapp.ts`, so a nominee can never be sent two different links.
+  app.get("/api/admin/nominee-links", requireAdmin, noCache, async (_req, res) => {
+    const [approved, artists, notifications, categoryList] = await Promise.all([
+      storage.getRequests("approved"),
+      storage.getArtists(),
+      storage.listNomineeNotifications(500),
+      loadCategories(),
+    ]);
+
+    // Newest first, so the first row seen for a request is its latest attempt.
+    const latest = new Map<number, NomineeNotification>();
+    for (const n of notifications) {
+      if (!latest.has(n.requestId)) latest.set(n.requestId, n);
+    }
+
+    const now = Date.now();
+    const categoryNames = new Map(categoryList.map((c) => [c.id, c.name]));
+    const items = approved.map((r) => {
+      const artist = artists.find((a) => a.name === r.name && a.category === r.category);
+      const categoryName = categoryNames.get(r.category) ?? r.category;
+      const phone = normalizeVotePhone(r.submitterPhone) || null;
+      const ussdCode = artist ? ussdNomineeCode(artist.id) : null;
+      const message = buildNomineeMessage({ name: r.name, categoryName, requestId: r.id, ussdCode, now });
+      const sent = latest.get(r.id);
+      return {
+        requestId: r.id,
+        name: r.name,
+        category: r.category,
+        categoryName,
+        phone,
+        ussdCode,
+        link: nomineeVotingLink(r.id),
+        message,
+        waLink: waLinkFor(phone, message),
+        notification: sent ? { status: sent.status, at: sent.createdAt, error: sent.error } : null,
+      };
+    });
+
+    // Baileys is loaded lazily: the socket library is heavy and tests drive this
+    // app without ever needing it.
+    const { isWhatsAppConnected } = await import("./whatsapp-baileys");
+    const connected = isWhatsAppConnected();
+
+    res.json({
+      configured: connected || Boolean(whatsappConfig()),
+      connected,
+      votingOpen: votingState(now) === "open",
+      items,
+    });
+  });
+
+  app.post("/api/admin/nominee-links/:requestId/send", requireAdmin, async (req, res) => {
+    const requestId = Number(req.params.requestId);
+    const request = Number.isInteger(requestId) ? await storage.getRequest(requestId) : undefined;
+    if (!request || request.status !== "approved") {
+      return res.status(404).json({ message: "Only a published nominee has a voting link to send" });
+    }
+
+    const notice = await notifyNominee(storage, {
+      requestId: request.id,
+      name: request.name,
+      category: request.category,
+      submitterPhone: request.submitterPhone,
+    });
+
+    if (notice.status === "sent") {
+      audit(req, "nominee_link_sent", "request", request.id, `Sent the voting link to ${request.name} on WhatsApp`);
+    }
+    res.json(notice);
+  });
+
+  app.post("/api/admin/nominee-links/send-all", requireAdmin, async (req, res) => {
+    const { isWhatsAppConnected } = await import("./whatsapp-baileys");
+    if (!isWhatsAppConnected() && !whatsappConfig()) {
+      return res.status(409).json({
+        message:
+          "No WhatsApp number is linked yet. Open Admin → WhatsApp automation and link the awards number — after that every nominee's message goes out by itself.",
+      });
+    }
+
+    const [approved, notifications] = await Promise.all([
+      storage.getRequests("approved"),
+      storage.listNomineeNotifications(500),
+    ]);
+
+    const alreadySent = new Set(notifications.filter((n) => n.status === "sent").map((n) => n.requestId));
+    // Capped per press: Meta throttles bursts, and a half-finished batch is
+    // better than a request that times out. Pressing again continues.
+    const batchSize = 25;
+    const queue = approved.filter((r) => !alreadySent.has(r.id)).slice(0, batchSize);
+
+    const counts = { sent: 0, failed: 0, skipped: 0, notConfigured: 0 };
+    for (const request of queue) {
+      const notice = await notifyNominee(storage, {
+        requestId: request.id,
+        name: request.name,
+        category: request.category,
+        submitterPhone: request.submitterPhone,
+      });
+      if (notice.status === "sent") counts.sent += 1;
+      else if (notice.status === "failed") counts.failed += 1;
+      else if (notice.status === "skipped") counts.skipped += 1;
+      else counts.notConfigured += 1;
+    }
+
+    if (queue.length > 0) {
+      audit(
+        req,
+        "nominee_links_bulk",
+        "request",
+        null,
+        `Bulk WhatsApp links: ${counts.sent} sent, ${counts.failed} failed, ${counts.skipped} skipped of ${queue.length} nominee(s)`,
+      );
+    }
+
+    res.json({
+      ...counts,
+      attempted: queue.length,
+      remaining: Math.max(0, approved.length - alreadySent.size - queue.length),
+    });
+  });
+
+  // ─── Admin: WhatsApp automation (link the number, watch it send) ──────────
+  // Baileys keeps the WhatsApp Web session; linking happens once, from here.
+  // Everything after that is automatic, which is the point.
+  app.get("/api/admin/whatsapp", requireAdmin, noCache, async (_req, res) => {
+    const { whatsAppStatus } = await import("./whatsapp-baileys");
+    const status = whatsAppStatus();
+    res.json({ ...status, configured: status.connected || Boolean(whatsappConfig()) });
+  });
+
+  app.post("/api/admin/whatsapp/connect", requireAdmin, async (req, res) => {
+    const phone = typeof req.body?.phone === "string" ? req.body.phone.trim() : "";
+    try {
+      const { connectWhatsApp, whatsAppStatus } = await import("./whatsapp-baileys");
+      const status = await connectWhatsApp(phone ? { phone } : {});
+      audit(
+        req,
+        "whatsapp_connect",
+        "whatsapp",
+        status.phone,
+        phone ? `Requested a pairing code for ${phone}` : "Started a WhatsApp Web session",
+      );
+      res.json({ ...status, configured: status.connected || Boolean(whatsappConfig()) });
+    } catch (err) {
+      res.status(400).json({ message: err instanceof Error ? err.message : "Could not start WhatsApp." });
+    }
+  });
+
+  app.post("/api/admin/whatsapp/logout", requireAdmin, async (req, res) => {
+    const { logoutWhatsApp, whatsAppStatus } = await import("./whatsapp-baileys");
+    await logoutWhatsApp();
+    audit(req, "whatsapp_logout", "whatsapp", null, "Unlinked the WhatsApp number");
+    res.json({ ...whatsAppStatus(), configured: Boolean(whatsappConfig()) });
+  });
+
+  app.post("/api/admin/whatsapp/sweep", requireAdmin, async (req, res) => {
+    const { runNomineeLinkSweep, isWhatsAppConnected } = await import("./whatsapp-baileys");
+    if (!isWhatsAppConnected()) {
+      return res.status(409).json({ message: "The WhatsApp number is not connected." });
+    }
+    const result = await runNomineeLinkSweep(storage);
+    if (result.sent > 0 || result.failed > 0) {
+      audit(
+        req,
+        "whatsapp_sweep",
+        "whatsapp",
+        null,
+        `Automatic WhatsApp run: ${result.sent} sent, ${result.failed} failed, ${result.remaining} remaining`,
+      );
+    }
+    res.json(result);
   });
 
   // ─── Admin: view and force-recover stuck pending payments ─────────────────

@@ -8,7 +8,9 @@ import {
   uploadedImages,
   pendingPayments,
   adminAuditLog,
+  nomineeNotifications,
   type AdminAuditEntry,
+  type NomineeNotification,
   type ArtistResponse,
   type InsertArtist,
   type InsertVote,
@@ -19,7 +21,7 @@ import {
   type PendingPayment,
   CATEGORY_CAP,
 } from "@shared/schema";
-import { eq, sql, lt, gte, inArray, desc, asc } from "drizzle-orm";
+import { eq, and, sql, lt, gte, inArray, desc, asc } from "drizzle-orm";
 import { VOTING_START, VOTING_END } from "@shared/dates";
 
 // Re-exported so existing server imports (`import { CATEGORY_CAP } from "./storage"`)
@@ -80,6 +82,25 @@ export interface IStorage {
   purgeAbandonedPendingPayments(olderThanMs: number): Promise<number>;
   logAdminAction(entry: AdminActionInput): Promise<void>;
   getAdminAuditLog(limit?: number): Promise<AdminAuditEntry[]>;
+  /** Records one WhatsApp attempt for a nominee's voting link. */
+  createNomineeNotification(input: NomineeNotificationInput): Promise<NomineeNotification>;
+  /** Newest first; the caller keeps the latest row per request. */
+  listNomineeNotifications(limit?: number): Promise<NomineeNotification[]>;
+  /** True once this nomination has received a message that WhatsApp accepted. */
+  hasSentNomineeNotification(requestId: number): Promise<boolean>;
+}
+
+export interface NomineeNotificationInput {
+  requestId: number;
+  artistId?: number | null;
+  phone: string;
+  link: string;
+  message: string;
+  status: string;
+  provider?: string | null;
+  providerMessageId?: string | null;
+  error?: string | null;
+  sentAt?: Date | null;
 }
 
 export interface AdminActionInput {
@@ -477,6 +498,43 @@ export class DatabaseStorage implements IStorage {
   async getAdminAuditLog(limit = 100): Promise<AdminAuditEntry[]> {
     const safeLimit = Number.isFinite(limit) ? Math.min(Math.max(Math.trunc(limit), 1), 500) : 100;
     return await db.select().from(adminAuditLog).orderBy(desc(adminAuditLog.createdAt)).limit(safeLimit);
+  }
+
+  async createNomineeNotification(input: NomineeNotificationInput): Promise<NomineeNotification> {
+    const [row] = await db
+      .insert(nomineeNotifications)
+      .values({
+        requestId: input.requestId,
+        artistId: input.artistId ?? null,
+        phone: input.phone,
+        link: input.link,
+        message: input.message,
+        status: input.status,
+        provider: input.provider ?? null,
+        providerMessageId: input.providerMessageId ?? null,
+        error: input.error ?? null,
+        sentAt: input.sentAt ?? null,
+      })
+      .returning();
+    return row;
+  }
+
+  async listNomineeNotifications(limit = 200): Promise<NomineeNotification[]> {
+    const safeLimit = Number.isFinite(limit) ? Math.min(Math.max(Math.trunc(limit), 1), 500) : 200;
+    return await db
+      .select()
+      .from(nomineeNotifications)
+      .orderBy(desc(nomineeNotifications.createdAt))
+      .limit(safeLimit);
+  }
+
+  async hasSentNomineeNotification(requestId: number): Promise<boolean> {
+    const [row] = await db
+      .select({ id: nomineeNotifications.id })
+      .from(nomineeNotifications)
+      .where(and(eq(nomineeNotifications.requestId, requestId), eq(nomineeNotifications.status, "sent")))
+      .limit(1);
+    return Boolean(row);
   }
 }
 
