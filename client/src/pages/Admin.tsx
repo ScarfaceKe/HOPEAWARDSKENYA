@@ -458,6 +458,26 @@ export default function Admin() {
     },
   });
 
+  const pauseWhatsAppMutation = useMutation({
+    mutationFn: async (paused: boolean) => {
+      const res = await apiRequest("POST", "/api/admin/whatsapp/pause", { paused });
+      return (await res.json()) as any;
+    },
+    onSuccess: (_data: any, paused: boolean) => {
+      refetchWhatsApp();
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/nominee-links"] });
+      toast({
+        title: paused ? "WHATSAPP PAUSED" : "WHATSAPP RESUMED",
+        description: paused
+          ? "No automatic or bulk messages will be sent. Links already delivered still work."
+          : "Batches will run at most 5 messages an hour, about a minute apart.",
+      });
+    },
+    onError: (err: any) => {
+      toast({ title: "Could not change automation", description: err?.message || "Try again.", variant: "destructive" });
+    },
+  });
+
   const sweepWhatsAppMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("POST", "/api/admin/whatsapp/sweep");
@@ -465,14 +485,17 @@ export default function Admin() {
     },
     onSuccess: (data: any) => {
       toast({
-        title: "WHATSAPP RUN DONE",
-        description: `${data?.sent ?? 0} sent · ${data?.failed ?? 0} failed · ${data?.remaining ?? 0} still to go.`,
+        title: "WHATSAPP BATCH STARTED",
+        description: `Up to ${data?.batchSize ?? 5} messages, about ${data?.gapSeconds ?? 60} seconds apart. The list refreshes when the batch finishes.`,
       });
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/nominee-links"] });
+      // A batch is intentionally slow; refresh the ledger once it should be done.
+      window.setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ["/api/admin/nominee-links"] });
+      }, ((data?.batchSize ?? 5) * (data?.gapSeconds ?? 60) * 1000) + 5_000);
       refetchWhatsApp();
     },
     onError: (err: any) => {
-      toast({ title: "Send failed", description: err?.message || "Try again.", variant: "destructive" });
+      toast({ title: "Could not start the batch", description: err?.message || "Try again.", variant: "destructive" });
     },
   });
 
@@ -483,14 +506,16 @@ export default function Admin() {
     },
     onSuccess: (data: any) => {
       toast({
-        title: "WHATSAPP BATCH DONE",
-        description: `${data?.sent ?? 0} sent · ${data?.failed ?? 0} failed · ${data?.remaining ?? 0} still to go.`,
+        title: "WHATSAPP BATCH STARTED",
+        description: `Up to ${data?.batchSize ?? 5} messages, about ${data?.gapSeconds ?? 60} seconds apart.`,
         className: "bg-secondary/90 text-black border-none font-display",
       });
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/nominee-links"] });
+      window.setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ["/api/admin/nominee-links"] });
+      }, ((data?.batchSize ?? 5) * (data?.gapSeconds ?? 60) * 1000) + 5_000);
     },
     onError: (err: any) => {
-      toast({ title: "Batch failed", description: err?.message || "Try again.", variant: "destructive" });
+      toast({ title: "Could not start the batch", description: err?.message || "Try again.", variant: "destructive" });
     },
   });
 
@@ -1533,22 +1558,57 @@ export default function Admin() {
                   <span className={`w-1.5 h-1.5 rounded-full ${whatsapp?.connected ? "bg-emerald-400" : "bg-amber-400"}`} />
                   {whatsapp?.connected ? `LINKED +${whatsapp.phone ?? ""}` : "NOT LINKED"}
                 </span>
+                {whatsapp?.paused && (
+                  <span
+                    data-testid="whatsapp-paused-badge"
+                    className="inline-flex items-center gap-1.5 text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300"
+                  >
+                    PAUSED
+                  </span>
+                )}
               </div>
+
+              {whatsapp?.paused && (
+                <div className="mt-3 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3" data-testid="whatsapp-paused">
+                  <p className="text-[11px] font-bold tracking-widest text-amber-300">AUTOMATION PAUSED</p>
+                  <p className="text-xs text-amber-100/80 mt-1 leading-relaxed">
+                    No automatic or bulk messages will be sent. Links already delivered still work. Press RESUME when the number is clear —
+                    the pause survives a restart or deploy.
+                  </p>
+                </div>
+              )}
 
               {whatsapp?.connected ? (
                 <>
                   <p className="text-xs text-muted-foreground mt-2 leading-relaxed">
                     Every nominee is congratulated and sent their voting link automatically — new approvals straight away, and everyone
-                    already on the site a few at a time ({linksMissing} left). No clicking needed; keep the linked phone online.
+                    already on the site <span className="text-white">5 at a time, about a minute apart, at most once an hour</span>{" "}
+                    ({linksMissing} left). No clicking needed; keep the linked phone online.
                   </p>
                   <div className="flex flex-wrap gap-2 mt-3">
                     <button
                       onClick={() => sweepWhatsAppMutation.mutate()}
-                      disabled={sweepWhatsAppMutation.isPending || linksMissing === 0}
+                      disabled={whatsapp?.paused || whatsapp?.sweepRunning || sweepWhatsAppMutation.isPending || linksMissing === 0}
                       data-testid="button-whatsapp-sweep"
                       className="px-4 py-2.5 bg-secondary text-black rounded-xl text-xs font-bold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-secondary/90"
                     >
-                      {sweepWhatsAppMutation.isPending ? "SENDING…" : "SEND THE REST NOW"}
+                      {whatsapp?.paused
+                        ? "PAUSED"
+                        : whatsapp?.sweepRunning || sweepWhatsAppMutation.isPending
+                          ? "SENDING…"
+                          : "SEND NEXT 5"}
+                    </button>
+                    <button
+                      onClick={() => pauseWhatsAppMutation.mutate(!whatsapp?.paused)}
+                      disabled={pauseWhatsAppMutation.isPending}
+                      data-testid="button-whatsapp-pause"
+                      className={`px-4 py-2.5 rounded-xl text-xs font-bold disabled:opacity-40 disabled:cursor-not-allowed transition-colors ${
+                        whatsapp?.paused
+                          ? "bg-amber-400 text-black hover:bg-amber-300"
+                          : "bg-amber-500/15 border border-amber-500/40 text-amber-300 hover:bg-amber-500/25"
+                      }`}
+                    >
+                      {pauseWhatsAppMutation.isPending ? "…" : whatsapp?.paused ? "RESUME AUTOMATION" : "PAUSE AUTOMATION"}
                     </button>
                     <button
                       onClick={() => logoutWhatsAppMutation.mutate()}
@@ -1563,8 +1623,9 @@ export default function Admin() {
               ) : (
                 <>
                   <p className="text-xs text-muted-foreground mt-2 leading-relaxed">
-                    Link the awards' WhatsApp number once, here. After that every nominee — the ones already live and every new approval — gets
-                    the congratulations message and their voting link with no clicks from you.
+                    {whatsapp?.paused
+                      ? "The number is paused, so nothing will send when you link it. Connect it now, then press RESUME when the restriction is over."
+                      : "Link the awards' WhatsApp number once, here. After that every nominee — the ones already live and every new approval — gets the congratulations message and their voting link with no clicks from you."}
                   </p>
                   <p className="text-xs text-muted-foreground mt-2 leading-relaxed">
                     Before you ask for a code, open WhatsApp on the awards phone → <span className="text-white">Settings → Linked devices →
@@ -1622,20 +1683,27 @@ export default function Admin() {
                     {linksSent} of {nomineeLinks.items.length} nominees have their voting link sent
                   </p>
                   <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                    {nomineeLinks.connected
-                      ? "Every new approval is messaged by itself. This reaches anyone still waiting, without pressing anything on each card."
-                      : nomineeLinks.configured
-                        ? "Automatic sending is configured but not connected right now — connect the number above, or send this batch."
-                        : "Link the awards WhatsApp number above and every nominee's message sends itself. Until then, each card has a one-tap WhatsApp button."}
+                    {whatsapp?.paused
+                      ? "Automation is paused — no automatic or bulk batch will start until you press RESUME in the WhatsApp card."
+                      : nomineeLinks.connected
+                        ? "New approvals are messaged by themselves. The rest go out 5 at a time, about a minute apart, at most one batch an hour."
+                        : nomineeLinks.configured
+                          ? "Automatic sending is configured but not connected right now — connect the number above, or start the next batch."
+                          : "Link the awards WhatsApp number above and every nominee's message sends itself. Until then, each card has a one-tap WhatsApp button."}
                   </p>
                 </div>
                 <button
                   onClick={() => sendAllLinksMutation.mutate()}
-                  disabled={linksMissing === 0 || !nomineeLinks.configured || sendAllLinksMutation.isPending}
+                  disabled={linksMissing === 0 || !nomineeLinks.configured || whatsapp?.paused || whatsapp?.sweepRunning || sendAllLinksMutation.isPending}
                   data-testid="button-send-all-nominee-links"
+                  title={whatsapp?.paused ? "Resume WhatsApp automation first" : "Sends the next 5, about a minute apart"}
                   className="px-4 py-2.5 bg-secondary text-black rounded-xl text-xs font-bold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-secondary/90 transition-all shrink-0"
                 >
-                  {sendAllLinksMutation.isPending ? "SENDING…" : `SEND TO ${linksMissing} MISSING`}
+                  {whatsapp?.paused
+                    ? "PAUSED"
+                    : whatsapp?.sweepRunning || sendAllLinksMutation.isPending
+                      ? "SENDING…"
+                      : "SEND NEXT 5"}
                 </button>
               </div>
             )}
@@ -1720,12 +1788,14 @@ export default function Admin() {
                           </a>
                           <button
                             onClick={() => sendNomineeLinkMutation.mutate(req.id)}
-                            disabled={!nomineeLinks?.configured || sendNomineeLinkMutation.isPending}
+                            disabled={!nomineeLinks?.configured || whatsapp?.paused || sendNomineeLinkMutation.isPending}
                             data-testid={`button-send-link-approved-${req.id}`}
                             className="inline-flex items-center gap-2 px-3 py-2 bg-secondary/15 border border-secondary/40 rounded-lg text-secondary text-sm font-bold hover:bg-secondary/25 disabled:opacity-50 disabled:cursor-not-allowed"
-                            title={nomineeLinks?.configured
-                              ? "Send the voting link to this nominee on WhatsApp now — resending is allowed"
-                              : "Link the awards WhatsApp number above first; meanwhile the WhatsApp button opens the same message"}
+                            title={whatsapp?.paused
+                              ? "Automation is paused — resume it in the WhatsApp card first"
+                              : nomineeLinks?.configured
+                                ? "Send the voting link to this nominee on WhatsApp now — resending is allowed"
+                                : "Link the awards WhatsApp number above first; meanwhile the WhatsApp button opens the same message"}
                           >
                             {linkSent ? "RESEND LINK" : "SEND LINK"}
                           </button>

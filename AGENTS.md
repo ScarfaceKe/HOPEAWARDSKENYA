@@ -102,14 +102,18 @@ before voting opens.
   so a nominee can never receive two different links.
 - `server/whatsapp-baileys.ts` is the transport: the awards' own WhatsApp number, linked once from
   Admin → WhatsApp automation with a pairing code or QR. It is an unofficial WhatsApp Web client —
-  a number that spams strangers gets banned, so runs are throttled (20 per batch, 6–13 s apart,
-  every two minutes) and a bad number is retried at most three times.
+  a number that spams strangers gets restricted, so runs are throttled (5 per batch, about a
+  minute apart, at most one batch an hour) and a bad number is retried at most three times.
+  `server/whatsapp-control.ts` owns that rate gate and the persistent pause switch; paused blocks
+  approvals, single sends, bulk sends and the automatic sweep. The switch lives in
+  `whatsapp_automation` and defaults to paused on a fresh install.
 - The session must survive a deploy: the Baileys keys live in `whatsapp_auth`, never on disk. Do not
   switch this to `useMultiFileAuthState` — the host's disk is ephemeral, and re-pairing on every
   deploy would break the automation.
-- This is automation, not buttons: approving a nominee messages them immediately, and a sweep after
-  the number is linked (then every two minutes) covers everyone approved earlier who has no `sent`
-  row. `nominee_notifications` is the ledger — check it before sending so nobody gets two messages.
+- This is automation, not buttons: approving a nominee messages them immediately (unless paused),
+  and a sweep after the number is linked (then at most once an hour) covers everyone approved
+  earlier who has no `sent` row. `nominee_notifications` is the ledger — check it before sending so
+  nobody gets two messages.
 - `WHATSAPP_TOKEN` / `WHATSAPP_PHONE_NUMBER_ID` remain as an optional Cloud API fallback. Baileys
   needs no template and no Meta review; the Cloud API path still does.
 - Message copy must never mention the enforced close time (00:15). Only `VOTING_CLOSE_TEXT`.

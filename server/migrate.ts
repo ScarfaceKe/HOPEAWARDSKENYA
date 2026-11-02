@@ -105,6 +105,26 @@ export async function runMigrations() {
       );
     `);
 
+    // The automation switch and rate gate. Defaulting to paused on a fresh
+    // install is deliberate: linking a number must never start sending before
+    // an admin has seen the panel and pressed RESUME. The row survives deploys,
+    // so a pause during a WhatsApp restriction stays in force across restarts.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS whatsapp_automation (
+        id INTEGER PRIMARY KEY,
+        paused BOOLEAN NOT NULL DEFAULT TRUE,
+        last_run_at TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+    `);
+    await client.query(`
+      ALTER TABLE whatsapp_automation ADD COLUMN IF NOT EXISTS last_run_at TIMESTAMP;
+    `);
+    await client.query(`
+      INSERT INTO whatsapp_automation (id, paused) VALUES (1, TRUE)
+      ON CONFLICT (id) DO NOTHING;
+    `);
+
     await client.query(`
       CREATE TABLE IF NOT EXISTS admin_audit_log (
         id SERIAL PRIMARY KEY,

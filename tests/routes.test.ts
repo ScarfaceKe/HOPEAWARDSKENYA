@@ -102,6 +102,8 @@ test("WhatsApp automation status is admin-only and honest about not being linked
     state: string;
     hasSavedSession: boolean;
     configured: boolean;
+    paused: boolean;
+    sweepRunning: boolean;
   };
   // No number has been linked in this process, so the panel must not pretend
   // messages are going out.
@@ -109,6 +111,8 @@ test("WhatsApp automation status is admin-only and honest about not being linked
   assert.equal(body.hasSavedSession, false);
   assert.equal(typeof body.state, "string");
   assert.equal(typeof body.configured, "boolean");
+  assert.equal(typeof body.paused, "boolean");
+  assert.equal(body.sweepRunning, false);
 });
 
 test("CSRF: the approve flow's POST /api/artists is refused bare and cleared with the token", async () => {

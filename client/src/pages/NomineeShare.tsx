@@ -1,12 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
 import { useRoute, Link } from "wouter";
 import { motion } from "framer-motion";
-import { Trophy, ArrowRight, Calendar, Copy, Check, Sparkles } from "lucide-react";
+import { Trophy, ArrowRight, Calendar, Copy, Check, Sparkles, Zap } from "lucide-react";
 import { SiWhatsapp } from "react-icons/si";
 import { useState } from "react";
 import { isSongCategory } from "@shared/schema";
 import { useCategories } from "@/hooks/use-categories";
 import { useVotingStatus, AWARDS_DATE } from "@/hooks/use-voting-status";
+import { VoteDialog } from "@/components/VoteDialog";
 
 type PublicRequest = {
   id: number;
@@ -14,12 +15,15 @@ type PublicRequest = {
   imageUrl: string;
   category: string;
   status: string;
+  /** The published artist row the vote dialog charges against. */
+  artistId: number | null;
 };
 
 export default function NomineeShare() {
   const [, params] = useRoute("/n/:id");
   const id = params?.id;
   const [copied, setCopied] = useState(false);
+  const [isVoteOpen, setIsVoteOpen] = useState(false);
   const { votingOpen, votingClosed } = useVotingStatus();
   const { getCategory } = useCategories();
 
@@ -58,6 +62,8 @@ export default function NomineeShare() {
 
   const categoryName = getCategory(data.category)?.name || data.category;
   const isSong = isSongCategory(data.category);
+  const artistId = typeof data.artistId === "number" ? data.artistId : null;
+  const canVote = votingOpen && artistId !== null;
   const subject = isSong ? `the song "${data.name}"` : data.name;
   const shareUrl = typeof window !== "undefined" ? `${window.location.origin}/n/${data.id}` : `/n/${data.id}`;
   const shareMessage = votingOpen
@@ -104,6 +110,16 @@ export default function NomineeShare() {
               <p className="text-secondary font-display text-sm tracking-wider mt-1" data-testid="text-nominee-category">
                 {categoryName.toUpperCase()}
               </p>
+              {canVote && (
+                <button
+                  onClick={() => setIsVoteOpen(true)}
+                  data-testid="button-vote-nominee"
+                  className="vote-bounce mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-primary to-amber-500 px-4 py-3.5 font-display text-base sm:text-lg tracking-wider text-black shadow-lg shadow-primary/30 transition-all hover:brightness-110 active:scale-95"
+                >
+                  <Zap className="w-5 h-5 shrink-0" />
+                  <span className="text-center leading-tight break-words">VOTE FOR {data.name.toUpperCase()}</span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -138,6 +154,16 @@ export default function NomineeShare() {
               </span>
             </div>
 
+            {canVote && (
+              <button
+                onClick={() => setIsVoteOpen(true)}
+                data-testid="button-vote-nominee-main"
+                className="mb-4 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-primary to-amber-500 px-6 py-4 font-display text-xl tracking-wider text-black shadow-lg shadow-primary/30 transition-all hover:brightness-110 active:scale-[0.98]"
+              >
+                <Zap className="w-5 h-5 shrink-0" /> VOTE FOR {data.name}
+              </button>
+            )}
+
             <div className="grid grid-cols-2 gap-3 mb-4">
               <a
                 href={whatsappHref}
@@ -170,6 +196,16 @@ export default function NomineeShare() {
           </div>
         </motion.div>
       </div>
+
+      {artistId !== null && (
+        <VoteDialog
+          artistId={artistId}
+          artistName={data.name}
+          categoryName={categoryName}
+          isOpen={isVoteOpen}
+          onClose={() => setIsVoteOpen(false)}
+        />
+      )}
     </div>
   );
 }

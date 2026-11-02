@@ -13,8 +13,10 @@
 //      bad number is retried a few times and then left alone.
 //
 // Baileys is an unofficial WhatsApp Web client. A number that spams strangers
-// gets banned, so every automated run is throttled (a few seconds between sends,
-// batch capped) instead of blasting the whole list at once.
+// gets banned, so every automated run is throttled (5 per batch, about a minute
+// between sends, at most one batch an hour) and the whole automation can be
+// paused from the admin panel. The pause lives in `whatsapp_automation`, so a
+// restriction cannot be undone by a deploy restarting the process.
 
 // `makeWASocket` is imported by name on purpose. The production server is
 // bundled to CommonJS with this package left external, and esbuild's Node
@@ -38,6 +40,12 @@ import pino from "pino";
 import QRCode from "qrcode";
 import { PAIRING_CODE_TTL_MS } from "../shared/pairing";
 import { pool } from "./db";
+import {
+  WHATSAPP_BATCH_SIZE,
+  WHATSAPP_MESSAGE_GAP_MS,
+  claimWhatsAppBatch,
+  isWhatsAppAutomationPaused,
+} from "./whatsapp-control";
 import { normalizeVotePhone } from "./vote-rules";
 import {
   nomineesMissingLink,
@@ -68,6 +76,8 @@ export interface WhatsAppStatus {
   lastError: string | null;
   /** True once a session has been paired at least once (keys in the database). */
   hasSavedSession: boolean;
+  /** True while a nominee batch is being sent right now. */
+  sweepRunning: boolean;
 }
 
 let sock: WASocket | null = null;
@@ -261,8 +271,18 @@ export async function runNomineeLinkSweep(
     const queue = nomineesMissingLink({
       approved,
       notifications,
-      limit: options.limit ?? 20,
+      limit: options.limit ?? WHATSAPP_BATCH_SIZE,
     });
+
+    if (queue.length === 0) {
+      return { sent: 0, failed: 0, skipped: 0, attempted: 0, remaining: 0, connected: sessionState === "connected" };
+    }
+
+    // One batch per hour, shared by the timer, the admin button and the Cloud
+    // API path. The claim is atomic and also refuses while paused.
+    if (!(await claimWhatsAppBatch())) {
+      return { sent: 0, failed: 0, skipped: 0, attempted: 0, remaining: approved.length - alreadySent.size, connected: sessionState === "connected" };
+    }
 
     let sent = 0;
     let failed = 0;
@@ -270,7 +290,9 @@ export async function runNomineeLinkSweep(
 
     for (const [index, request] of queue.entries()) {
       if (sessionState !== "connected") break; // battery/power save: never record a false send
-      if (index > 0) await sleep(6_000 + Math.floor(Math.random() * 7_000));
+      // A pause pressed while the batch is sleeping must stop the very next send.
+      if (await isWhatsAppAutomationPaused()) break;
+      if (index > 0) await sleep(WHATSAPP_MESSAGE_GAP_MS + Math.floor(Math.random() * 10_000));
 
       // An approval may have sent this one while the batch was sleeping. Check
       // again right before sending: nobody may receive two messages.
@@ -312,11 +334,12 @@ function scheduleSweep(delayMs: number): void {
 
 function startSweepLoop(): void {
   if (sweepTimer) return;
-  // Every two minutes while connected. A run that is still going is skipped by
-  // `sweepRunning`, so this can never double-send.
+  // Check every 15 minutes; the atomic claim inside the sweep allows at most
+  // one batch an hour. Polling more often than the gate means the next batch
+  // starts close to the hour rather than up to another hour late.
   sweepTimer = setInterval(() => {
     if (sessionState === "connected" && storageRef) void runNomineeLinkSweep(storageRef);
-  }, 2 * 60 * 1000);
+  }, 15 * 60_000);
   sweepTimer.unref?.();
 }
 
@@ -594,6 +617,7 @@ export function whatsAppStatus(): WhatsAppStatus {
     pairingCodeIssuedAt,
     lastError,
     hasSavedSession,
+    sweepRunning,
   };
 }
 

@@ -32,6 +32,17 @@ import {
   waLinkFor,
   whatsappConfig,
 } from "./whatsapp";
+import {
+  claimWhatsAppBatch,
+  getWhatsAppAutomationState,
+  isWhatsAppAutomationPaused,
+  setWhatsAppAutomationPaused,
+  WHATSAPP_BATCH_SIZE,
+  WHATSAPP_MESSAGE_GAP_MS,
+  WHATSAPP_RUN_INTERVAL_MS,
+} from "./whatsapp-control";
+
+const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 const loginAttempts = new Map<string, { count: number; lockedUntil: number | null }>();
 const MAX_LOGIN_ATTEMPTS = 5;
@@ -1761,12 +1772,17 @@ export async function registerRoutes(
     if (Number.isNaN(id)) return res.status(400).json({ message: "Invalid id" });
     const r = await storage.getRequest(id);
     if (!r || r.status !== "approved") return res.status(404).json({ message: "Not found" });
+    // An approved request is published as an artist row. Returning its id lets
+    // the nominee link open the vote dialog directly instead of dropping the
+    // fan on a share page and making them hunt for the artist in the gallery.
+    const artist = await storage.findArtistByNameCategory(r.name, r.category);
     res.json({
       id: r.id,
       name: r.name,
       imageUrl: r.imageUrl,
       category: r.category,
       status: r.status,
+      artistId: artist?.id ?? null,
     });
   });
 
@@ -1927,14 +1943,19 @@ export async function registerRoutes(
         // The nominee's own voting link goes out the moment they go live. Not
         // awaited: Meta can take seconds and approving must never wait on
         // WhatsApp. The attempt is recorded either way, so a failure is visible
-        // in the dashboard instead of lost.
+        // in the dashboard instead of lost. While automation is paused we do
+        // not even try; the sweep will pick the nominee up after a resume.
         if (status === "approved") {
-          void notifyNominee(storage, {
-            requestId: updated.id,
-            name: updated.name,
-            category: updated.category,
-            submitterPhone: updated.submitterPhone,
-          }).catch((err) => console.error("[WHATSAPP] Nominee link failed:", err));
+          if (await isWhatsAppAutomationPaused()) {
+            console.log(`[WHATSAPP] Automation paused — nomination ${updated.id} will wait for a resume.`);
+          } else {
+            void notifyNominee(storage, {
+              requestId: updated.id,
+              name: updated.name,
+              category: updated.category,
+              submitterPhone: updated.submitterPhone,
+            }).catch((err) => console.error("[WHATSAPP] Nominee link failed:", err));
+          }
         }
       }
     } else {
@@ -2002,6 +2023,10 @@ export async function registerRoutes(
   });
 
   app.post("/api/admin/nominee-links/:requestId/send", requireAdmin, async (req, res) => {
+    if (await isWhatsAppAutomationPaused()) {
+      return res.status(409).json({ message: "WhatsApp automation is paused. Resume it in the WhatsApp card before sending." });
+    }
+
     const requestId = Number(req.params.requestId);
     const request = Number.isInteger(requestId) ? await storage.getRequest(requestId) : undefined;
     if (!request || request.status !== "approved") {
@@ -2022,52 +2047,101 @@ export async function registerRoutes(
   });
 
   app.post("/api/admin/nominee-links/send-all", requireAdmin, async (req, res) => {
-    const { isWhatsAppConnected } = await import("./whatsapp-baileys");
-    if (!isWhatsAppConnected() && !whatsappConfig()) {
+    if (await isWhatsAppAutomationPaused()) {
+      return res.status(409).json({ message: "WhatsApp automation is paused. Resume it in the WhatsApp card before sending." });
+    }
+
+    // The hourly gate is shared with the automatic sweep. Without this, the
+    // admin button was a way to bypass the rate limit entirely.
+    const state = await getWhatsAppAutomationState();
+    if (state.lastRunAt && Date.now() - state.lastRunAt < WHATSAPP_RUN_INTERVAL_MS) {
+      const retryAfterSeconds = Math.ceil((WHATSAPP_RUN_INTERVAL_MS - (Date.now() - state.lastRunAt)) / 1000);
+      return res.status(429).json({
+        message: `The next WhatsApp batch is available in ${Math.ceil(retryAfterSeconds / 60)} minute(s).`,
+        retryAfterSeconds,
+      });
+    }
+
+    const { isWhatsAppConnected, runNomineeLinkSweep, whatsAppStatus } = await import("./whatsapp-baileys");
+    const connected = isWhatsAppConnected();
+    if (!connected && !whatsappConfig()) {
       return res.status(409).json({
         message:
           "No WhatsApp number is linked yet. Open Admin → WhatsApp automation and link the awards number — after that every nominee's message goes out by itself.",
       });
     }
 
+    if (connected) {
+      if (whatsAppStatus().sweepRunning) {
+        return res.status(409).json({ message: "A WhatsApp batch is already running." });
+      }
+      // The sweep owns the atomic claim, disconnect detection and ledger.
+      void runNomineeLinkSweep(storage)
+        .then((result) => {
+          if (result.sent > 0 || result.failed > 0) {
+            audit(
+              req,
+              "nominee_links_bulk",
+              "request",
+              null,
+              `Bulk WhatsApp links: ${result.sent} sent, ${result.failed} failed, ${result.remaining} remaining`,
+            );
+          }
+        })
+        .catch((err) => console.error("[WHATSAPP] Bulk batch failed:", err));
+      return res.status(202).json({
+        started: true,
+        batchSize: WHATSAPP_BATCH_SIZE,
+        gapSeconds: Math.round(WHATSAPP_MESSAGE_GAP_MS / 1000),
+      });
+    }
+
+    // Cloud API fallback: same hourly slot and the same slow trickle.
     const [approved, notifications] = await Promise.all([
       storage.getRequests("approved"),
       storage.listNomineeNotifications(500),
     ]);
-
     const alreadySent = new Set(notifications.filter((n) => n.status === "sent").map((n) => n.requestId));
-    // Capped per press: Meta throttles bursts, and a half-finished batch is
-    // better than a request that times out. Pressing again continues.
-    const batchSize = 25;
-    const queue = approved.filter((r) => !alreadySent.has(r.id)).slice(0, batchSize);
-
-    const counts = { sent: 0, failed: 0, skipped: 0, notConfigured: 0 };
-    for (const request of queue) {
-      const notice = await notifyNominee(storage, {
-        requestId: request.id,
-        name: request.name,
-        category: request.category,
-        submitterPhone: request.submitterPhone,
-      });
-      if (notice.status === "sent") counts.sent += 1;
-      else if (notice.status === "failed") counts.failed += 1;
-      else if (notice.status === "skipped") counts.skipped += 1;
-      else counts.notConfigured += 1;
+    const queue = approved.filter((r) => !alreadySent.has(r.id)).slice(0, WHATSAPP_BATCH_SIZE);
+    if (queue.length === 0) {
+      return res.status(202).json({ started: true, batchSize: 0, gapSeconds: 0, remaining: 0 });
+    }
+    if (!(await claimWhatsAppBatch())) {
+      return res.status(429).json({ message: "A WhatsApp batch was just started. Try again later." });
     }
 
-    if (queue.length > 0) {
-      audit(
-        req,
-        "nominee_links_bulk",
-        "request",
-        null,
-        `Bulk WhatsApp links: ${counts.sent} sent, ${counts.failed} failed, ${counts.skipped} skipped of ${queue.length} nominee(s)`,
-      );
-    }
+    void (async () => {
+      const counts = { sent: 0, failed: 0, skipped: 0, notConfigured: 0 };
+      for (const [index, request] of queue.entries()) {
+        if (index > 0) await wait(WHATSAPP_MESSAGE_GAP_MS);
+        if (await isWhatsAppAutomationPaused()) break;
+        const notice = await notifyNominee(storage, {
+          requestId: request.id,
+          name: request.name,
+          category: request.category,
+          submitterPhone: request.submitterPhone,
+        });
+        if (notice.status === "sent") counts.sent += 1;
+        else if (notice.status === "failed") counts.failed += 1;
+        else if (notice.status === "skipped") counts.skipped += 1;
+        else counts.notConfigured += 1;
+      }
 
-    res.json({
-      ...counts,
-      attempted: queue.length,
+      if (queue.length > 0) {
+        audit(
+          req,
+          "nominee_links_bulk",
+          "request",
+          null,
+          `Bulk WhatsApp links: ${counts.sent} sent, ${counts.failed} failed, ${counts.skipped} skipped of ${queue.length} nominee(s)`,
+        );
+      }
+    })().catch((err) => console.error("[WHATSAPP] Bulk batch failed:", err));
+
+    return res.status(202).json({
+      started: true,
+      batchSize: queue.length,
+      gapSeconds: Math.round(WHATSAPP_MESSAGE_GAP_MS / 1000),
       remaining: Math.max(0, approved.length - alreadySent.size - queue.length),
     });
   });
@@ -2078,7 +2152,13 @@ export async function registerRoutes(
   app.get("/api/admin/whatsapp", requireAdmin, noCache, async (_req, res) => {
     const { whatsAppStatus } = await import("./whatsapp-baileys");
     const status = whatsAppStatus();
-    res.json({ ...status, configured: status.connected || Boolean(whatsappConfig()) });
+    const automation = await getWhatsAppAutomationState();
+    res.json({
+      ...status,
+      paused: automation.paused,
+      lastRunAt: automation.lastRunAt,
+      configured: status.connected || Boolean(whatsappConfig()),
+    });
   });
 
   app.post("/api/admin/whatsapp/connect", requireAdmin, async (req, res) => {
@@ -2106,22 +2186,65 @@ export async function registerRoutes(
     res.json({ ...whatsAppStatus(), configured: Boolean(whatsappConfig()) });
   });
 
+  app.post("/api/admin/whatsapp/pause", requireAdmin, async (req, res) => {
+    if (typeof req.body?.paused !== "boolean") {
+      return res.status(400).json({ message: "paused must be true or false" });
+    }
+    const state = await setWhatsAppAutomationPaused(req.body.paused);
+    const { whatsAppStatus } = await import("./whatsapp-baileys");
+    const status = whatsAppStatus();
+    audit(
+      req,
+      req.body.paused ? "whatsapp_pause" : "whatsapp_resume",
+      "whatsapp",
+      null,
+      req.body.paused ? "Paused WhatsApp automation" : "Resumed WhatsApp automation",
+    );
+    res.json({
+      ...status,
+      paused: state.paused,
+      lastRunAt: state.lastRunAt,
+      configured: status.connected || Boolean(whatsappConfig()),
+    });
+  });
+
   app.post("/api/admin/whatsapp/sweep", requireAdmin, async (req, res) => {
-    const { runNomineeLinkSweep, isWhatsAppConnected } = await import("./whatsapp-baileys");
+    const { runNomineeLinkSweep, isWhatsAppConnected, whatsAppStatus } = await import("./whatsapp-baileys");
+    if (await isWhatsAppAutomationPaused()) {
+      return res.status(409).json({ message: "WhatsApp automation is paused. Resume it before sending." });
+    }
     if (!isWhatsAppConnected()) {
       return res.status(409).json({ message: "The WhatsApp number is not connected." });
     }
-    const result = await runNomineeLinkSweep(storage);
-    if (result.sent > 0 || result.failed > 0) {
-      audit(
-        req,
-        "whatsapp_sweep",
-        "whatsapp",
-        null,
-        `Automatic WhatsApp run: ${result.sent} sent, ${result.failed} failed, ${result.remaining} remaining`,
-      );
+    if (whatsAppStatus().sweepRunning) {
+      return res.status(409).json({ message: "A WhatsApp batch is already running." });
     }
-    res.json(result);
+    const state = await getWhatsAppAutomationState();
+    if (state.lastRunAt && Date.now() - state.lastRunAt < WHATSAPP_RUN_INTERVAL_MS) {
+      const retryAfterSeconds = Math.ceil((WHATSAPP_RUN_INTERVAL_MS - (Date.now() - state.lastRunAt)) / 1000);
+      return res.status(429).json({
+        message: `The next WhatsApp batch is available in ${Math.ceil(retryAfterSeconds / 60)} minute(s).`,
+        retryAfterSeconds,
+      });
+    }
+    void runNomineeLinkSweep(storage)
+      .then((result) => {
+        if (result.sent > 0 || result.failed > 0) {
+          audit(
+            req,
+            "whatsapp_sweep",
+            "whatsapp",
+            null,
+            `WhatsApp batch: ${result.sent} sent, ${result.failed} failed, ${result.remaining} remaining`,
+          );
+        }
+      })
+      .catch((err) => console.error("[WHATSAPP] Batch failed:", err));
+    res.status(202).json({
+      started: true,
+      batchSize: WHATSAPP_BATCH_SIZE,
+      gapSeconds: Math.round(WHATSAPP_MESSAGE_GAP_MS / 1000),
+    });
   });
 
   // ─── Admin: view and force-recover stuck pending payments ─────────────────
