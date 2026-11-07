@@ -546,42 +546,48 @@ export async function registerRoutes(
       return res.status(400).json({ message: "Invalid artist id" });
     }
     if (!Number.isInteger(add) || add <= 0) {
-      return res.status(400).json({ message: "add must be a positive whole number — you can only add votes, not deduct." });
+      return res.status(400).json({ message: "add must be a positive whole number — adjustments are logged, never deducted." });
     }
     if (add > MAX_MANUAL_VOTES_PER_ADDITION) {
       return res.status(400).json({
-        message: `Add at most ${MAX_MANUAL_VOTES_PER_ADDITION.toLocaleString()} votes at a time.`,
+        message: `Log at most ${MAX_MANUAL_VOTES_PER_ADDITION.toLocaleString()} votes at a time.`,
       });
     }
 
-    // Checked on every addition, not just when the panel renders. Turning the
+    // Checked on every entry, not just when the panel renders. Turning the
     // switch off must also stop a tab that still has the controls open.
     const manualVotes = await getManualVoteSettings();
     if (!manualVotes.enabled) {
       return res.status(409).json({
-        message: "Manual vote additions are turned off. Turn them on in Admin → Votes first.",
+        message: "Manual vote adjustment logging is turned off. Turn it on in Admin → Votes first.",
       });
     }
 
     try {
-      const artist = await storage.addVotesToArtist(id, add);
-      apiCache.clear();
-      audit(req, "add_votes", "artist", id, `Manually added ${add} vote(s) to ${artist.name}`);
+      const artist = await storage.getArtist(id);
+      if (!artist) {
+        return res.status(404).json({ message: "Artist not found" });
+      }
+      // Audit only. `artists.total_votes` is rebuilt from the paid `votes`
+      // ledger and must never be changed by an admin action.
+      audit(
+        req,
+        "log_manual_votes",
+        "artist",
+        id,
+        `Logged a manual adjustment of ${add} vote(s) for ${artist.name} — not counted in official totals`,
+      );
       recordAlertThrottled(
         "warning",
         "admin.manual_votes",
-        "Votes were added by hand in the admin panel",
+        "A manual vote adjustment was logged (not counted)",
         { artistId: id, artist: artist.name, votes: add, ip: requestIp(req) },
         60_000,
       );
-      return res.json(artist);
+      return res.json({ ...artist, adjustmentLogged: add, adjustmentCounted: false });
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Could not add the votes.";
-      if (message === "Artist not found") {
-        return res.status(404).json({ message });
-      }
-      console.error("[MANUAL VOTES] Could not add votes:", err);
-      return res.status(500).json({ message: "Could not add the votes. Try again." });
+      console.error("[MANUAL VOTES] Could not log the adjustment:", err);
+      return res.status(500).json({ message: "Could not log the adjustment. Try again." });
     }
   });
 

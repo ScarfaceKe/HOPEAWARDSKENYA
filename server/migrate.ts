@@ -321,6 +321,22 @@ export async function runMigrations() {
       ON CONFLICT (id) DO NOTHING;
     `);
 
+    // Official tallies are paid-only. The `votes` ledger is the source of
+    // truth, so rebuild every cached total from it and erase anything an admin
+    // may have added by hand. This also repairs drift from older deploys.
+    await client.query(`
+      UPDATE artists a
+      SET total_votes = paid.total
+      FROM (
+        SELECT a2.id, COALESCE(SUM(v.votes_added), 0)::int AS total
+        FROM artists a2
+        LEFT JOIN votes v ON v.artist_id = a2.id
+        GROUP BY a2.id
+      ) paid
+      WHERE paid.id = a.id
+        AND a.total_votes IS DISTINCT FROM paid.total;
+    `);
+
     console.log("[migrate] Tables and DB indexes applied.");
   } catch (err) {
     console.error("[migrate] Migration error (non-fatal):", err);

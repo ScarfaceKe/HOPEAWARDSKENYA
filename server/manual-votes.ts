@@ -1,13 +1,13 @@
-// ─── Manual vote additions ───────────────────────────────────────────────────
-// Adding votes by hand is deliberately a two-step admin action: the global
-// switch has to be on, and only then does the panel (and the API) accept a
-// number. The switch lives in Postgres so a reload, a restart or a deploy
-// cannot quietly turn it back on or leave the controls visible when the server
-// would reject the request.
+// ─── Manual vote adjustments ─────────────────────────────────────────────────
+// Manual entries are deliberately a two-step admin action: the global switch
+// has to be on, and only then does the panel (and the API) accept a number. The
+// switch lives in Postgres so a reload, a restart or a deploy cannot quietly
+// turn it back on or leave the controls visible when the server would reject
+// the request.
 //
-// The setting is separate from the public vote path. Paid votes still go
-// through MegaPay; this only adjusts a nominee's tally for an admin correction
-// and never creates a fake payment ledger row.
+// Entries are audit-only. Paid votes still arrive through MegaPay, and the
+// official tally is rebuilt from those paid `votes` rows; a manual entry never
+// creates a payment row and never changes `artists.total_votes`.
 
 import { pool } from "./db";
 import { MAX_MANUAL_VOTES_PER_ADDITION } from "@shared/site";

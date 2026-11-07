@@ -700,15 +700,15 @@ export default function Admin() {
     },
     onSuccess: (_data, vars) => {
       toast({
-        title: "VOTES ADDED",
-        description: `${vars.add} vote${vars.add === 1 ? "" : "s"} added. The nominee's live total is now updated.`,
+        title: "ADJUSTMENT LOGGED",
+        description: `${vars.add} vote${vars.add === 1 ? "" : "s"} recorded in the audit log. Official totals only include paid votes and did not change.`,
         className: "bg-primary/90 text-black border-none font-display",
       });
       setAddAmounts((prev) => ({ ...prev, [vars.id]: "" }));
       queryClient.invalidateQueries({ queryKey: ["/api/artists"] });
     },
     onError: (err: any) => {
-      toast({ title: "Failed", description: err?.message || "Could not add votes. Try again.", variant: "destructive" });
+      toast({ title: "Failed", description: err?.message || "Could not log the adjustment. Try again.", variant: "destructive" });
     },
   });
 
@@ -727,19 +727,19 @@ export default function Admin() {
     },
     onSuccess: (data, enabled) => {
       queryClient.setQueryData(["/api/admin/manual-votes"], data);
-      // Turning it off must also remove any half-typed additions immediately.
+      // Turning it off must also clear any half-typed adjustment immediately.
       if (!enabled) setAddAmounts({});
       toast({
-        title: enabled ? "MANUAL VOTE ADDITIONS ON" : "MANUAL VOTE ADDITIONS OFF",
+        title: enabled ? "MANUAL ADJUSTMENT LOG ON" : "MANUAL ADJUSTMENT LOG OFF",
         description: enabled
-          ? "Each nominee now has an ADD VOTES control. Additions are cumulative and audited."
-          : "The add-vote controls are hidden and the server will reject any additions.",
+          ? "Each nominee now has a LOG ADJUSTMENT control. Entries are audited and never added to official totals."
+          : "The adjustment controls are hidden and the server will reject any entries.",
       });
     },
     onError: (err: any) => {
       refetchManualVoteSettings();
       toast({
-        title: "Could not change manual additions",
+        title: "Could not change manual adjustments",
         description: err?.message || "Try again.",
         variant: "destructive",
       });
@@ -2378,11 +2378,11 @@ export default function Admin() {
                     <Plus className="w-5 h-5" />
                   </div>
                   <div>
-                    <h3 className="font-display text-lg text-white tracking-wide">MANUAL VOTE ADDITIONS</h3>
+                    <h3 className="font-display text-lg text-white tracking-wide">MANUAL ADJUSTMENT LOG</h3>
                     <p className="text-xs text-muted-foreground mt-1 max-w-xl leading-relaxed">
                       {manualVotesEnabled
-                        ? "The add-vote controls are visible on every nominee below. This is a live correction to the public tally, not a test."
-                        : "Turn this on to reveal an ADD VOTES control on every nominee below. Off means the controls are hidden and the server refuses additions."}
+                        ? "The log controls are visible on every nominee below. Entries are audit-only: they never change official vote totals."
+                        : "Turn this on to reveal a LOG ADJUSTMENT control on every nominee below. Off means the controls are hidden and the server refuses entries."}
                     </p>
                   </div>
                 </div>
@@ -2399,7 +2399,7 @@ export default function Admin() {
                     checked={manualVotesEnabled}
                     onCheckedChange={(checked) => toggleManualVotesMutation.mutate(checked)}
                     disabled={loadingManualVoteSettings || toggleManualVotesMutation.isPending}
-                    aria-label="Toggle manual vote additions"
+                    aria-label="Toggle manual vote adjustment logging"
                     data-testid="toggle-manual-votes"
                     className="data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-white/15"
                   />
@@ -2409,9 +2409,8 @@ export default function Admin() {
               {manualVotesEnabled && (
                 <div className="mt-4 rounded-xl border border-emerald-400/20 bg-black/20 px-4 py-3">
                   <p className="text-xs text-emerald-100/80 leading-relaxed">
-                    <strong className="text-emerald-300">Additions are cumulative.</strong> If a nominee has 20
-                    votes and you add 10, their total becomes 30. Nothing is replaced. Every addition is written to the
-                    admin audit log.
+                    <strong className="text-emerald-300">Audit only.</strong> Entries are written to the admin audit
+                    log for review but never added to any vote total. Official totals are rebuilt from paid votes only.
                   </p>
                 </div>
               )}
@@ -2425,7 +2424,7 @@ export default function Admin() {
                     VOTE MANAGER
                   </h3>
                   <p className="text-xs text-muted-foreground mt-1">
-                    Live vote counts — final results.
+                    Official paid-vote counts — final results.
                   </p>
                 </div>
                 <div className="flex flex-col items-end gap-3">
@@ -2433,7 +2432,7 @@ export default function Admin() {
                     <p className="text-2xl font-display text-primary font-bold" data-testid="text-total-votes">
                       {allArtists.reduce((sum: number, a: any) => sum + (a.totalVotes || 0), 0).toLocaleString()}
                     </p>
-                    <p className="text-xs text-muted-foreground">total votes cast</p>
+                    <p className="text-xs text-muted-foreground">paid votes cast</p>
                   </div>
                   <button
                     onClick={() => shuffleMutation.mutate()}
@@ -2498,7 +2497,6 @@ export default function Admin() {
                         Number.isInteger(addNum) && addNum > 0 && addNum <= MAX_MANUAL_VOTES_PER_ADDITION;
                       const isAdding =
                         addVotesMutation.isPending && addVotesMutation.variables?.id === artist.id;
-                      const newTotal = (Number(artist.totalVotes) || 0) + (canAdd ? addNum : 0);
                       return (
                         <div
                           key={artist.id}
@@ -2546,9 +2544,9 @@ export default function Admin() {
                                       addVotesMutation.mutate({ id: artist.id, add: addNum });
                                     }
                                   }}
-                                  aria-label={`Votes to add to ${artist.name}`}
+                                  aria-label={`Manual votes to log for ${artist.name}`}
                                   data-testid={`input-add-votes-${artist.id}`}
-                                  placeholder="Votes to add"
+                                  placeholder="Votes to log"
                                   className="w-32 rounded-lg border border-emerald-400/25 bg-black/40 px-3 py-2 text-sm text-white placeholder:text-white/25 focus:outline-none focus:border-emerald-400/60 focus:ring-1 focus:ring-emerald-400/30 transition-all"
                                 />
                                 <button
@@ -2562,14 +2560,14 @@ export default function Admin() {
                                   ) : (
                                     <Plus className="w-3.5 h-3.5" />
                                   )}
-                                  {isAdding ? "ADDING…" : "ADD VOTES"}
+                                  {isAdding ? "LOGGING…" : "LOG ADJUSTMENT"}
                                 </button>
                                 {canAdd && (
                                   <span
-                                    className="text-[11px] font-bold text-emerald-300/80"
-                                    data-testid={`new-total-${artist.id}`}
+                                    className="text-[11px] font-bold text-amber-300/80"
+                                    data-testid={`official-total-note-${artist.id}`}
                                   >
-                                    New total: {newTotal.toLocaleString()}
+                                    Official total stays {(artist.totalVotes || 0).toLocaleString()} — not counted
                                   </span>
                                 )}
                                 {addVal && !canAdd && (
@@ -2584,7 +2582,7 @@ export default function Admin() {
                             <p className="text-xl font-display text-secondary font-bold" data-testid={`votes-count-${artist.id}`}>
                               {(artist.totalVotes || 0).toLocaleString()}
                             </p>
-                            <p className="text-xs text-muted-foreground">votes</p>
+                            <p className="text-xs text-muted-foreground">official votes</p>
                           </div>
                         </div>
                       );

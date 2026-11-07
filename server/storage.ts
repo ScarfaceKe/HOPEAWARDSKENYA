@@ -66,7 +66,6 @@ export interface IStorage {
   updateArtistBio(id: number, bio: string): Promise<ArtistResponse>;
   getTotalVotesCast(): Promise<number>;
   getTotalRevenue(): Promise<{ paidVotes: number; revenueKes: number }>;
-  addVotesToArtist(id: number, votes: number): Promise<ArtistResponse>;
   shuffleNominees(): Promise<void>;
   saveUploadedImage(filename: string, mimeType: string, data: string): Promise<void>;
   getUploadedImage(filename: string): Promise<UploadedImage | undefined>;
@@ -313,7 +312,12 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getTotalVotesCast(): Promise<number> {
-    const result = await db.select({ total: sql<number>`COALESCE(SUM(${artists.totalVotes}), 0)` }).from(artists);
+    // The official total is the paid ledger, never the cached tally. Manual
+    // admin adjustments are audit-only and must not appear here.
+    const result = await db
+      .select({ total: sql<number>`COALESCE(SUM(${votes.votesAdded}), 0)` })
+      .from(votes)
+      .innerJoin(artists, eq(votes.artistId, artists.id));
     return Number(result[0]?.total ?? 0);
   }
 
@@ -328,14 +332,6 @@ export class DatabaseStorage implements IStorage {
     };
   }
 
-  async addVotesToArtist(id: number, votes: number): Promise<ArtistResponse> {
-    const [updated] = await db.update(artists)
-      .set({ totalVotes: sql`${artists.totalVotes} + ${votes}` })
-      .where(eq(artists.id, id))
-      .returning();
-    if (!updated) throw new Error("Artist not found");
-    return updated;
-  }
 
   async getVotesByPhone(phone: string): Promise<VoteResponse[]> {
     const normalized = phone.replace(/\D/g, "");
