@@ -123,6 +123,12 @@ app.use((req, res, next) => {
       import("./whatsapp-baileys")
         .then(({ startWhatsAppAutomation }) => startWhatsAppAutomation(storage))
         .catch((err) => console.error("[startup] WhatsApp automation unavailable:", err));
+
+      // Social posting is independent of WhatsApp: the Zernio queue starts on
+      // the production server and picks up posters without an admin click.
+      import("./social")
+        .then(({ startSocialAutomation }) => startSocialAutomation())
+        .catch((err) => console.error("[startup] Social automation unavailable:", err));
     },
   );
 })().catch((err) => {

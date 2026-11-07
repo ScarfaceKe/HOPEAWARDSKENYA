@@ -50,6 +50,11 @@ Money and admin access are guarded in dedicated modules — change the rules the
 - `server/totp.ts` — RFC 6238 second factor for admin login, no extra dependency.
 - `server/alerts.ts` — anomaly alerts (payment, CSRF, callbacks, lockouts). Every alert is logged and
   kept for the admin **Security** tab; the last 200 are in memory only.
+- `server/manual-votes.ts` — persisted, off-by-default switch for adding votes by hand. The switch is
+  enforced on the server, not just hidden in the panel. `PATCH /api/artists/:id/votes` only accepts
+  cumulative positive additions while it is on (never a deduction or overwrite), caps one addition at
+  `MAX_MANUAL_VOTES_PER_ADDITION`, and writes an audit row. Turning it off hides the controls and makes
+  the route answer 409.
 - `admin_audit_log` — one row per admin mutation (what, when, from which IP), written via
   `audit()` in `server/routes.ts`.
 
@@ -76,6 +81,8 @@ Optional-but-recommended environment variables (production values belong in the 
 | `WHATSAPP_TEMPLATE_NAME` | Optional approved template. Business-initiated messages need one outside the 24-hour window. Body parameters, in order: nominee name, category, voting link. |
 | `WHATSAPP_TEMPLATE_LANG` | Optional template language code (default `en_US`). |
 | `WHATSAPP_LOG_LEVEL` | Optional Baileys protocol log level (default `silent`). Set `warn` while diagnosing a failed link. |
+| `ZERNIO_API_KEY` | Enables automatic poster posting to the Hope Awards Facebook Page, TikTok and YouTube through Zernio. Facebook/TikTok get the still poster; YouTube gets a 20-second vertical video with a generated gospel instrumental. Instagram is deliberately not connected. Create it at zernio.com → Settings → API Keys. Without it the Social tab explains the missing setup and posts nothing. |
+| `ZERNIO_PROFILE_ID` | Optional. Use an existing Zernio profile instead of letting the server find/create `Hope Awards Kenya`. |
 
 ### USSD voting (`*246*2345#`) — MobileSasa
 
@@ -94,6 +101,21 @@ Optional-but-recommended environment variables (production values belong in the 
 Without `MEGAPAY_CALLBACK_SECRET` or `MEGAPAY_CALLBACK_IPS` the callback stays open and the server
 logs a loud warning — anyone who can reach it could claim a payment succeeded, so set one of them
 before voting opens.
+
+### Social poster posting — `server/social.ts` + `shared/social-caption.ts`
+
+- **Only nominees with `artists.poster_ready = TRUE` are eligible while `social_automation.only_with_posters` is on (the default).** An uploaded photo is not proof of an official poster: admins mark the flag with the per-nominee pill in DELETE → MANAGE NOMINEES, the checkbox in EDIT, or the ADD ARTIST checkbox. The queue, its count and its preview must all apply the same filter; never infer poster readiness from `image_url`.
+- One poster per artist, one row in `social_posts` (unique `artist_id`). The same poster can never publish twice; a failed post gets at most three attempts, then the queue moves on.
+- The production server owns both the timer and manual publishing. The preview and test process never post to the real accounts (`SOCIAL_ALLOW_DEV_POSTS=true` is the only override, for a staging install with its own accounts). `startSocialAutomation()` starts the queue; manual publishing from Admin → Social uses `runSocialQueue({ force: true })` and bypasses the pause switch, the 4-hour slot and the retry wait, not the attempt cap, the one-row ledger or platform validation.
+- The automatic cadence is one poster every 4 hours (6 per platform per day). Facebook's 100/day, TikTok Business's 15 photo/day and Zernio's 25/hour caps are not the constraint; **YouTube is**: a Data API video upload costs 1,600 of the default 10,000 units/day, so 6 uploads use 9,600. Do not raise the cadence back to 8/day without checking the channel's YouTube quota. Instagram is intentionally not in `SOCIAL_PLATFORMS`.
+- `social_automation` holds the switch, Zernio profile id and last slot. Enabling it resets the slot so the next poster can go on the next five-minute queue tick (or immediately with POST NEXT POSTER); pausing survives restarts. The queue is off on a fresh install.
+- Media must be a publicly reachable **HTTPS** URL. Uploaded images are served from `https://www.hopeawards.co.ke` (the bare domain 301s, which some media fetchers do not follow). `socialMediaUrl()` throws on `http://`, empty and scheme-only values rather than silently handing a bad URL to a platform, and the queue queries skip rows that are neither a relative path nor HTTPS so one bad URL cannot block every later poster.
+- **YouTube gets a video, not the still image.** `server/poster-video.ts` renders a 1080x1920, 20-second H.264/AAC MP4 and uploads it to Zernio's presigned media storage; `server/gospel-audio.ts` synthesizes the soundtrack (original gospel organ/pentatonic instrumental). Do not swap in a copyrighted gospel recording: the generated track is deliberate so YouTube Content ID cannot mute or block the upload. The video uses the finished poster over a blurred, darkened copy of itself and becomes a YouTube Short. If YouTube is connected and the video cannot be rendered/uploaded, fail the whole post so the ledger retries it; never silently publish only Facebook/TikTok.
+- ffmpeg comes from the `@ffmpeg-installer/ffmpeg` dependency; do not replace it with a system `ffmpeg` call. The npm package carries the static binary the Node host needs.
+- Captions are **automatic**, built from the nominee's own row by `buildSocialCaption()`: name, category, USSD code, `/artist/:id` link, KES 10 and `VOTING_CLOSE_TEXT`. There is no manual caption editor and no generic fallback copy; the caption always names the person on the poster. Never hard-code a name or expose `VOTING_END` / `00:15`. TikTok gets a ≤90-character title and the full caption in `tiktokSettings.description`; Facebook uses the full caption; YouTube uses the title as its video title and the caption as its description.
+- One request posts to every connected platform (`platforms[]` on Zernio), not one request per platform. The YouTube target carries `customMedia` with the rendered video while Facebook/TikTok use the shared still poster. Each platform's result is stored so a partial success is shown honestly in Admin → Social.
+- Zernio is the transport and OAuth broker: the official `@zernio/node` SDK is already a dependency; do not add a second social-posting app or a parallel queue. Connect the Facebook Page, TikTok and YouTube channel from Admin → Social after setting `ZERNIO_API_KEY`. YouTube is a third connected account, so check the Zernio plan's account pricing.
+- Account/API failures must never break the site or the WhatsApp rail. The timer catches errors, records them on the ledger and retries at most three times. A missing key or no connected accounts leaves everything else running.
 
 ### Nominee voting links (WhatsApp) — `server/whatsapp.ts` + `server/whatsapp-baileys.ts`
 
@@ -117,3 +139,7 @@ before voting opens.
 - `WHATSAPP_TOKEN` / `WHATSAPP_PHONE_NUMBER_ID` remain as an optional Cloud API fallback. Baileys
   needs no template and no Meta review; the Cloud API path still does.
 - Message copy must never mention the enforced close time (00:15). Only `VOTING_CLOSE_TEXT`.
+- Only one process may hold the live session. `server/whatsapp-baileys.ts` takes a PostgreSQL session advisory lock (`WHATSAPP_LEADER_LOCK`) and refuses to connect in preview/test unless `WHATSAPP_ALLOW_DEV_SESSION=true`. This is what stops a deploy overlap or the shared preview from replacing the production socket and forcing a re-link.
+- The first successful link on a fresh install auto-starts the queue once. Any explicit pause or resume sets `whatsapp_automation.auto_started`, so the automation never overrides the admin's choice again. Reconnects do not clear a chosen pause.
+- Temporary drops retry themselves: `connectionReplaced` up to five times about a minute apart, `forbidden` up to twelve times two hours apart. Only `loggedOut`, `badSession` and `multideviceMismatch` require a new link (and clear the saved credentials).
+- The automatic sweep sends one 5-message batch at most once an hour. A reconnect schedules another sweep, but `claimWhatsAppBatch()` still enforces the hourly slot and the persistent pause. Do not add a second scheduler or bypass that claim.

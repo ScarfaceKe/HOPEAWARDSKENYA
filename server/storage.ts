@@ -60,7 +60,8 @@ export interface IStorage {
   countApprovedByCategory(category: string): Promise<number>;
   countAllApprovedByCategory(): Promise<Record<string, number>>;
   findArtistByNameCategory(name: string, category: string): Promise<ArtistResponse | undefined>;
-  updateArtist(id: number, data: { name: string; imageUrl: string }): Promise<ArtistResponse>;
+  updateArtist(id: number, data: { name: string; imageUrl: string; posterReady?: boolean }): Promise<ArtistResponse>;
+  setArtistPosterReady(id: number, posterReady: boolean): Promise<ArtistResponse>;
   updateArtistCategory(id: number, category: string): Promise<void>;
   updateArtistBio(id: number, bio: string): Promise<ArtistResponse>;
   getTotalVotesCast(): Promise<number>;
@@ -275,12 +276,28 @@ export class DatabaseStorage implements IStorage {
     return artist;
   }
 
-  async updateArtist(id: number, data: { name: string; imageUrl: string }): Promise<ArtistResponse> {
+  async updateArtist(id: number, data: { name: string; imageUrl: string; posterReady?: boolean }): Promise<ArtistResponse> {
     const name = data.name.trim();
     const imageUrl = data.imageUrl.trim();
     if (!name) throw new Error("Name cannot be empty");
     if (!imageUrl) throw new Error("Image URL cannot be empty");
-    const [updated] = await db.update(artists).set({ name, imageUrl }).where(eq(artists.id, id)).returning();
+    const [updated] = await db.update(artists)
+      .set({
+        name,
+        imageUrl,
+        ...(typeof data.posterReady === "boolean" ? { posterReady: data.posterReady } : {}),
+      })
+      .where(eq(artists.id, id))
+      .returning();
+    if (!updated) throw new Error("Artist not found");
+    return updated;
+  }
+
+  async setArtistPosterReady(id: number, posterReady: boolean): Promise<ArtistResponse> {
+    const [updated] = await db.update(artists)
+      .set({ posterReady })
+      .where(eq(artists.id, id))
+      .returning();
     if (!updated) throw new Error("Artist not found");
     return updated;
   }

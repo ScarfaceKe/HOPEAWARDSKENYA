@@ -38,11 +38,13 @@ import {
 } from "@whiskeysockets/baileys";
 import pino from "pino";
 import QRCode from "qrcode";
+import type { PoolClient } from "pg";
 import { PAIRING_CODE_TTL_MS } from "../shared/pairing";
 import { pool } from "./db";
 import {
   WHATSAPP_BATCH_SIZE,
   WHATSAPP_MESSAGE_GAP_MS,
+  autoStartWhatsAppAutomationOnce,
   claimWhatsAppBatch,
   isWhatsAppAutomationPaused,
 } from "./whatsapp-control";
@@ -94,9 +96,21 @@ let shouldReconnect = true;
 let connecting: Promise<WhatsAppStatus> | null = null;
 let reconnectTimer: NodeJS.Timeout | null = null;
 let sweepTimer: NodeJS.Timeout | null = null;
+let sweepKickTimer: NodeJS.Timeout | null = null;
 let sweepRunning = false;
 let storageRef: IStorage | null = null;
 let writeChain: Promise<unknown> = Promise.resolve();
+
+// Only one process may hold the WhatsApp session. During a Render deploy the
+// old and new instances overlap for a few seconds; without this lock both open
+// a socket on the same credentials and WhatsApp replaces one of them. The
+// preview is also kept out entirely: it shares this database, and a background
+// socket there would fight the live awards number.
+const WHATSAPP_LEADER_LOCK = 726_202_611;
+let leaderClient: PoolClient | null = null;
+let leadershipRetryTimer: NodeJS.Timeout | null = null;
+let replacementRetries = 0;
+let restrictionRetries = 0;
 
 // ─── Auth state, persisted in Postgres ──────────────────────────────────────
 
@@ -327,9 +341,14 @@ export async function runNomineeLinkSweep(
 function scheduleSweep(delayMs: number): void {
   if (!storageRef) return;
   const storage = storageRef;
-  setTimeout(() => {
+  // A reconnect can schedule another kick before the first one fires. Keep one
+  // pending kick so two sweeps do not race for the same batch slot.
+  if (sweepKickTimer) clearTimeout(sweepKickTimer);
+  sweepKickTimer = setTimeout(() => {
+    sweepKickTimer = null;
     void runNomineeLinkSweep(storage);
-  }, delayMs).unref?.();
+  }, delayMs);
+  sweepKickTimer.unref?.();
 }
 
 function startSweepLoop(): void {
@@ -345,15 +364,92 @@ function startSweepLoop(): void {
 
 // ─── Connection lifecycle ───────────────────────────────────────────────────
 
-function scheduleReconnect(): void {
+/**
+ * The production server owns the awards number. The shared preview runs the
+ * same code against the same database, so it must never open a background
+ * socket: two clients on one WhatsApp session keep replacing each other. An
+ * explicit override exists for a staging install with its own database.
+ */
+function automationAllowedInThisProcess(): boolean {
+  return process.env.NODE_ENV === "production" || process.env.WHATSAPP_ALLOW_DEV_SESSION === "true";
+}
+
+/**
+ * Takes a PostgreSQL session-level lock. The lock disappears automatically if
+ * this process dies, so a deploy hands the number to the new instance without
+ * either side needing a manual reconnect. Returns false while another process
+ * still owns the session.
+ */
+async function ensureLeadership(): Promise<boolean> {
+  if (leaderClient) return true;
+  if (!automationAllowedInThisProcess()) return false;
+
+  let client: PoolClient | null = null;
+  try {
+    const leaseClient = await pool.connect();
+    client = leaseClient;
+    const { rows } = await leaseClient.query<{ locked: boolean }>(
+      "SELECT pg_try_advisory_lock($1) AS locked",
+      [WHATSAPP_LEADER_LOCK],
+    );
+    if (!rows[0]?.locked) {
+      leaseClient.release();
+      return false;
+    }
+
+    leaderClient = leaseClient;
+    leaseClient.on("error", () => {
+      if (leaderClient !== leaseClient) return;
+      leaderClient = null;
+      console.error("[WHATSAPP] Lost the database lease that keeps this instance in charge.");
+      // The client is checked out of the pool, so destroy it explicitly: a dead
+      // lease connection must not leak one of the pool's slots on every drop.
+      try {
+        leaseClient.release(true);
+      } catch {
+        // It was already released by the driver.
+      }
+      lastError = "The WhatsApp session is changing servers. Reconnecting automatically…";
+      shouldReconnect = false;
+      try {
+        sock?.end(undefined);
+      } catch {
+        // The socket is already gone.
+      }
+      sock = null;
+      sessionState = "closed";
+      scheduleLeadershipRetry();
+    });
+    console.log("[WHATSAPP] This instance owns the live WhatsApp session.");
+    return true;
+  } catch (err) {
+    client?.release();
+    console.error("[WHATSAPP] Could not acquire the session lease:", err);
+    return false;
+  }
+}
+
+function scheduleLeadershipRetry(): void {
+  if (leadershipRetryTimer || !storageRef) return;
+  leadershipRetryTimer = setTimeout(() => {
+    leadershipRetryTimer = null;
+    if (storageRef) void startWhatsAppAutomation(storageRef);
+  }, 15_000);
+  leadershipRetryTimer.unref?.();
+}
+
+function scheduleReconnect(delayMs = 5_000): void {
   if (!shouldReconnect || reconnectTimer) return;
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null;
     if (!shouldReconnect) return;
     void connectWhatsApp().catch((err) => {
       console.error("[WHATSAPP] Reconnect failed:", err);
+      // If another instance is still finishing a deploy, try again rather than
+      // leaving the admin with a dead session and a manual reconnect button.
+      if (shouldReconnect) scheduleReconnect(15_000);
     });
-  }, 5_000);
+  }, delayMs);
   reconnectTimer.unref?.();
 }
 
@@ -396,11 +492,36 @@ async function handleConnectionUpdate(
     lastError = null;
     mePhone = parsePhone(source.user?.id);
     meName = source.user?.name || null;
+    // Whether this connection came from credentials saved before this open.
+    // Only a genuinely fresh link may auto-start the queue; an existing install
+    // that was paused before this deploy must stay paused on reconnect.
+    const wasAlreadyLinked = hasSavedSession;
     hasSavedSession = true;
+    replacementRetries = 0;
+    restrictionRetries = 0;
     registerTransport();
     console.log(`[WHATSAPP] Linked as ${mePhone ?? "unknown number"}. Sending automatically.`);
-    // Give the socket a moment to settle before the first message goes out.
-    scheduleSweep(8_000);
+
+    if (wasAlreadyLinked) {
+      // Reconnect (or a server restart): keep the admin's stored switch as-is
+      // and just give the socket a moment to settle before the next batch.
+      scheduleSweep(8_000);
+    } else {
+      // A fresh install links the number and starts sending without a second
+      // button press. An explicit pause/resume press sets `auto_started`, so
+      // this can never undo an admin's later choice. Wait for that one-time
+      // switch before asking for a batch, then give the socket a moment.
+      void autoStartWhatsAppAutomationOnce()
+        .then((started) => {
+          if (sock !== source || sessionState !== "connected") return;
+          if (started) console.log("[WHATSAPP] First link: automatic sending started.");
+          scheduleSweep(8_000);
+        })
+        .catch((err) => {
+          console.error("[WHATSAPP] Could not prepare the first automatic batch:", err);
+          if (sock === source && sessionState === "connected") scheduleSweep(8_000);
+        });
+    }
   }
 
   if (update.connection === "close") {
@@ -440,17 +561,33 @@ async function handleConnectionUpdate(
     sessionState = "closed";
 
     if (statusCode === DisconnectReason.connectionReplaced) {
-      // Two processes are using the same keys; reconnecting would make both
-      // fight for the number and keep kicking each other.
-      shouldReconnect = false;
-      lastError = "Another WhatsApp session is using this number. Close it, then press connect again.";
+      // The old instance of a deploy can hold the number for a moment. Retry
+      // ourselves instead of asking the admin to press connect; the database
+      // lease stops two live instances from doing this forever.
+      replacementRetries += 1;
+      if (replacementRetries <= 5) {
+        lastError = "WhatsApp moved the session. Reconnecting automatically…";
+        scheduleReconnect(60_000);
+      } else {
+        shouldReconnect = false;
+        lastError =
+          "WhatsApp keeps replacing this session. Close WhatsApp Web on the other device, then press connect.";
+      }
       return;
     }
 
     if (statusCode === DisconnectReason.forbidden) {
-      // 403 is WhatsApp refusing the number; retrying cannot fix that.
-      shouldReconnect = false;
-      lastError = "WhatsApp refused this number (403). Check it is not restricted, then link again.";
+      // A restriction is a temporary 403, not a dead credential. Try again at a
+      // deliberately slow interval instead of forcing the admin to re-link;
+      // stop after roughly a day so a permanently blocked number cannot loop.
+      restrictionRetries += 1;
+      if (restrictionRetries <= 12) {
+        lastError = "WhatsApp is temporarily refusing this number. It will retry automatically.";
+        scheduleReconnect(2 * 60 * 60_000);
+      } else {
+        shouldReconnect = false;
+        lastError = "WhatsApp is still refusing this number. Check the restriction, then press connect.";
+      }
       return;
     }
 
@@ -465,6 +602,19 @@ async function handleConnectionUpdate(
  */
 export async function connectWhatsApp(options: { phone?: string } = {}): Promise<WhatsAppStatus> {
   shouldReconnect = true;
+  if (!automationAllowedInThisProcess()) {
+    throw new Error(
+      "WhatsApp automation runs on the production server. This preview cannot hold the awards number because it would disconnect the live session.",
+    );
+  }
+  if (!(await ensureLeadership())) {
+    throw new Error("Another app instance is taking over the WhatsApp session. Try again in a few seconds.");
+  }
+  // A manual reconnect supersedes a pending automatic one.
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
   if (sessionState === "connected" && sock) {
     if (options.phone) await requestPairingCode(options.phone);
     return whatsAppStatus();
@@ -627,6 +777,12 @@ export function isWhatsAppConnected(): boolean {
 
 /** Unlinks the device and forgets the session, so a different number can be used. */
 export async function logoutWhatsApp(): Promise<void> {
+  if (!automationAllowedInThisProcess()) {
+    throw new Error("WhatsApp automation runs on the production server; this preview cannot unlink the live number.");
+  }
+  if (!(await ensureLeadership())) {
+    throw new Error("Another app instance is taking over the WhatsApp session. Try again in a few seconds.");
+  }
   shouldReconnect = false;
   if (reconnectTimer) {
     clearTimeout(reconnectTimer);
@@ -657,6 +813,20 @@ export async function logoutWhatsApp(): Promise<void> {
  */
 export async function startWhatsAppAutomation(storage: IStorage): Promise<void> {
   storageRef = storage;
+
+  if (!automationAllowedInThisProcess()) {
+    lastError = "WhatsApp runs on the production server. This preview will not touch the live session.";
+    console.log("[WHATSAPP] Preview instance — automatic session disabled to protect the production number.");
+    return;
+  }
+
+  if (!(await ensureLeadership())) {
+    lastError = "Another app instance owns the WhatsApp session. Taking over automatically…";
+    console.log("[WHATSAPP] Waiting for the previous server instance to release the WhatsApp session.");
+    scheduleLeadershipRetry();
+    return;
+  }
+
   startSweepLoop();
 
   try {
@@ -676,5 +846,6 @@ export async function startWhatsAppAutomation(storage: IStorage): Promise<void> 
 
   void connectWhatsApp().catch((err) => {
     console.error("[WHATSAPP] Automatic reconnect failed:", err instanceof Error ? err.message : err);
+    if (shouldReconnect) scheduleReconnect(15_000);
   });
 }

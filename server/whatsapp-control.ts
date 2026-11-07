@@ -17,6 +17,12 @@ export interface WhatsAppAutomationState {
   paused: boolean;
   /** Epoch ms of the last claimed batch, or null if none has ever run. */
   lastRunAt: number | null;
+  /**
+   * True once an admin has explicitly changed the switch, or the first
+   * successful link auto-started the queue. Until then a successful connection
+   * may turn a new install's safe default off once, so linking is enough.
+   */
+  autoStarted: boolean;
 }
 
 /**
@@ -25,18 +31,23 @@ export interface WhatsAppAutomationState {
  */
 export async function getWhatsAppAutomationState(): Promise<WhatsAppAutomationState> {
   try {
-    const { rows } = await pool.query<{ paused: boolean; last_run_at: Date | null }>(
-      "SELECT paused, last_run_at FROM whatsapp_automation WHERE id = 1",
+    const { rows } = await pool.query<{
+      paused: boolean;
+      last_run_at: Date | null;
+      auto_started: boolean;
+    }>(
+      "SELECT paused, last_run_at, auto_started FROM whatsapp_automation WHERE id = 1",
     );
     const row = rows[0];
-    if (!row) return { paused: true, lastRunAt: null };
+    if (!row) return { paused: true, lastRunAt: null, autoStarted: false };
     return {
       paused: row.paused !== false,
       lastRunAt: row.last_run_at ? new Date(row.last_run_at).getTime() : null,
+      autoStarted: row.auto_started === true,
     };
   } catch (err) {
     console.error("[WHATSAPP] Could not read the automation switch:", err);
-    return { paused: true, lastRunAt: null };
+    return { paused: true, lastRunAt: null, autoStarted: false };
   }
 }
 
@@ -45,13 +56,37 @@ export async function isWhatsAppAutomationPaused(): Promise<boolean> {
 }
 
 export async function setWhatsAppAutomationPaused(paused: boolean): Promise<WhatsAppAutomationState> {
+  // Any explicit press is remembered: a later reconnect must never undo a
+  // chosen pause, and a chosen resume means the admin is in control from now on.
   await pool.query(
-    `INSERT INTO whatsapp_automation (id, paused, updated_at)
-     VALUES (1, $1, NOW())
-     ON CONFLICT (id) DO UPDATE SET paused = EXCLUDED.paused, updated_at = NOW()`,
+    `INSERT INTO whatsapp_automation (id, paused, auto_started, updated_at)
+     VALUES (1, $1, TRUE, NOW())
+     ON CONFLICT (id) DO UPDATE
+       SET paused = EXCLUDED.paused,
+           auto_started = TRUE,
+           updated_at = NOW()`,
     [paused],
   );
   return getWhatsAppAutomationState();
+}
+
+/**
+ * The first time a number connects on a fresh install, start the queue without
+ * making the admin press RESUME. A pause or resume press sets `auto_started`,
+ * so this can never override an explicit choice after that first connection.
+ */
+export async function autoStartWhatsAppAutomationOnce(): Promise<boolean> {
+  try {
+    const result = await pool.query(
+      `UPDATE whatsapp_automation
+          SET paused = FALSE, auto_started = TRUE, updated_at = NOW()
+        WHERE id = 1 AND paused = TRUE AND auto_started = FALSE`,
+    );
+    return (result.rowCount ?? 0) > 0;
+  } catch (err) {
+    console.error("[WHATSAPP] Could not auto-start the first automatic batch:", err);
+    return false;
+  }
 }
 
 /**

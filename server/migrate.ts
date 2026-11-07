@@ -106,9 +106,9 @@ export async function runMigrations() {
     `);
 
     // The automation switch and rate gate. Defaulting to paused on a fresh
-    // install is deliberate: linking a number must never start sending before
-    // an admin has seen the panel and pressed RESUME. The row survives deploys,
-    // so a pause during a WhatsApp restriction stays in force across restarts.
+    // install is deliberate: no message goes out until the first successful
+    // link, which auto-starts the queue once. After that an explicit pause or
+    // resume wins, and the row survives deploys so a pause stays in force.
     await client.query(`
       CREATE TABLE IF NOT EXISTS whatsapp_automation (
         id INTEGER PRIMARY KEY,
@@ -119,6 +119,12 @@ export async function runMigrations() {
     `);
     await client.query(`
       ALTER TABLE whatsapp_automation ADD COLUMN IF NOT EXISTS last_run_at TIMESTAMP;
+    `);
+    // False until an admin presses pause/resume or the first successful link
+    // auto-starts the queue. That one-time start must not override a later
+    // explicit pause when the session reconnects.
+    await client.query(`
+      ALTER TABLE whatsapp_automation ADD COLUMN IF NOT EXISTS auto_started BOOLEAN NOT NULL DEFAULT FALSE;
     `);
     await client.query(`
       INSERT INTO whatsapp_automation (id, paused) VALUES (1, TRUE)
@@ -193,6 +199,11 @@ export async function runMigrations() {
     await client.query(`
       ALTER TABLE artists ADD COLUMN IF NOT EXISTS bio TEXT;
     `);
+    // Social posting must never treat an ordinary profile photo as an official
+    // poster. Only an admin-confirmed row is eligible while the filter is on.
+    await client.query(`
+      ALTER TABLE artists ADD COLUMN IF NOT EXISTS poster_ready BOOLEAN NOT NULL DEFAULT FALSE;
+    `);
     // `created_at` powers the "new this week" rail on the discovery page. Nominees
     // published before this column existed are back-dated 30 days so they are not
     // reported as brand new; anything inserted from here on gets the real time.
@@ -253,6 +264,63 @@ export async function runMigrations() {
       CREATE INDEX IF NOT EXISTS nominee_notifications_request_id_idx
         ON nominee_notifications (request_id, created_at DESC);
     `);
+
+    // Social auto-posting through Zernio. One row per artist keeps the poster
+    // queue idempotent: a crash after publishing can never post the same poster
+    // twice, and the queue can resume exactly where it stopped.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS social_automation (
+        id INTEGER PRIMARY KEY,
+        enabled BOOLEAN NOT NULL DEFAULT FALSE,
+        only_with_posters BOOLEAN NOT NULL DEFAULT TRUE,
+        profile_id TEXT,
+        last_post_at TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+    `);
+    await client.query(`
+      ALTER TABLE social_automation
+        ADD COLUMN IF NOT EXISTS only_with_posters BOOLEAN NOT NULL DEFAULT TRUE;
+    `);
+    await client.query(`
+      INSERT INTO social_automation (id, enabled) VALUES (1, FALSE)
+      ON CONFLICT (id) DO NOTHING;
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS social_posts (
+        id SERIAL PRIMARY KEY,
+        artist_id INTEGER NOT NULL UNIQUE,
+        zernio_post_id TEXT,
+        status TEXT NOT NULL DEFAULT 'posting',
+        platforms TEXT,
+        caption TEXT NOT NULL,
+        media_url TEXT NOT NULL,
+        error TEXT,
+        attempts INTEGER NOT NULL DEFAULT 1,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        posted_at TIMESTAMP
+      );
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS social_posts_status_idx
+        ON social_posts (status, updated_at DESC);
+    `);
+
+    // The admin's manual-vote switch. Off by default: an admin must explicitly
+    // open the add-vote controls before the server will accept an addition.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS manual_vote_settings (
+        id INTEGER PRIMARY KEY,
+        enabled BOOLEAN NOT NULL DEFAULT FALSE,
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+    `);
+    await client.query(`
+      INSERT INTO manual_vote_settings (id, enabled) VALUES (1, FALSE)
+      ON CONFLICT (id) DO NOTHING;
+    `);
+
     console.log("[migrate] Tables and DB indexes applied.");
   } catch (err) {
     console.error("[migrate] Migration error (non-fatal):", err);

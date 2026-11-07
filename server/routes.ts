@@ -23,6 +23,11 @@ import { parseVoteOrder, voteVelocity, maskPhone, normalizeVotePhone } from "./v
 import { classifySettlement, paymentFailureReason } from "./payment-proof";
 import { issueCsrfToken, requireCsrf } from "./csrf";
 import { verifyTotp, twoFactorEnabled, enrollmentSecret, otpauthUri } from "./totp";
+import {
+  getManualVoteSettings,
+  setManualVoteSettings,
+  MAX_MANUAL_VOTES_PER_ADDITION,
+} from "./manual-votes";
 import { registerUssdRoutes } from "./ussd";
 import {
   buildNomineeMessage,
@@ -41,6 +46,18 @@ import {
   WHATSAPP_MESSAGE_GAP_MS,
   WHATSAPP_RUN_INTERVAL_MS,
 } from "./whatsapp-control";
+import {
+  SOCIAL_PLATFORMS,
+  getSocialAccounts,
+  getSocialStatus,
+  runSocialQueue,
+  setSocialAutomationEnabled,
+  setSocialOnlyWithPosters,
+  socialConnectUrl,
+  socialPostingAllowedInThisProcess,
+  zernioConfigured,
+  type SocialPlatform,
+} from "./social";
 
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -439,7 +456,7 @@ export async function registerRoutes(
 
     if (isAdmin) return res.json(sorted);
 
-    const publicView = sorted.map(({ totalVotes: _v, ...rest }) => rest);
+    const publicView = sorted.map(({ totalVotes: _v, posterReady: _pr, ...rest }) => rest);
     apiCache.set(cacheKey, publicView, TTL_API);
     res.set("Cache-Control", "public, max-age=30, stale-while-revalidate=60");
     res.json(publicView);
@@ -485,6 +502,33 @@ export async function registerRoutes(
     res.json(revenue);
   });
 
+  // The manual-vote switch is a separate, persisted admin control. The add
+  // route below reads the same row, so hiding the controls in the panel is not
+  // the only protection: a stale tab or hand-made request is refused too.
+  app.get("/api/admin/manual-votes", requireAdmin, noCache, async (_req, res) => {
+    res.json(await getManualVoteSettings());
+  });
+
+  app.post("/api/admin/manual-votes/toggle", requireAdmin, async (req, res) => {
+    if (typeof req.body?.enabled !== "boolean") {
+      return res.status(400).json({ message: "enabled must be true or false" });
+    }
+    try {
+      const state = await setManualVoteSettings(req.body.enabled);
+      audit(
+        req,
+        req.body.enabled ? "manual_votes_enable" : "manual_votes_disable",
+        "manual_votes",
+        null,
+        req.body.enabled ? "Enabled manual vote additions" : "Disabled manual vote additions",
+      );
+      return res.json(state);
+    } catch (err) {
+      console.error("[MANUAL VOTES] Could not save the switch:", err);
+      return res.status(500).json({ message: "Could not save the manual-vote switch. Try again." });
+    }
+  });
+
   app.patch("/api/artists/:id/bio", requireAdmin, async (req, res) => {
     const id = parseInt(String(req.params.id), 10);
     const bio = typeof req.body.bio === "string" ? req.body.bio : "";
@@ -497,20 +541,48 @@ export async function registerRoutes(
 
   app.patch("/api/artists/:id/votes", requireAdmin, async (req, res) => {
     const id = Number(req.params.id);
-    const add = Number(req.body.add);
+    const add = Number(req.body?.add);
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ message: "Invalid artist id" });
+    }
     if (!Number.isInteger(add) || add <= 0) {
       return res.status(400).json({ message: "add must be a positive whole number — you can only add votes, not deduct." });
     }
-    const artist = await storage.addVotesToArtist(id, add);
-    audit(req, "add_votes", "artist", id, `Manually added ${add} vote(s) to ${artist.name}`);
-    recordAlertThrottled(
-      "warning",
-      "admin.manual_votes",
-      "Votes were added by hand in the admin panel",
-      { artistId: id, artist: artist.name, votes: add, ip: requestIp(req) },
-      60_000,
-    );
-    res.json(artist);
+    if (add > MAX_MANUAL_VOTES_PER_ADDITION) {
+      return res.status(400).json({
+        message: `Add at most ${MAX_MANUAL_VOTES_PER_ADDITION.toLocaleString()} votes at a time.`,
+      });
+    }
+
+    // Checked on every addition, not just when the panel renders. Turning the
+    // switch off must also stop a tab that still has the controls open.
+    const manualVotes = await getManualVoteSettings();
+    if (!manualVotes.enabled) {
+      return res.status(409).json({
+        message: "Manual vote additions are turned off. Turn them on in Admin → Votes first.",
+      });
+    }
+
+    try {
+      const artist = await storage.addVotesToArtist(id, add);
+      apiCache.clear();
+      audit(req, "add_votes", "artist", id, `Manually added ${add} vote(s) to ${artist.name}`);
+      recordAlertThrottled(
+        "warning",
+        "admin.manual_votes",
+        "Votes were added by hand in the admin panel",
+        { artistId: id, artist: artist.name, votes: add, ip: requestIp(req) },
+        60_000,
+      );
+      return res.json(artist);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Could not add the votes.";
+      if (message === "Artist not found") {
+        return res.status(404).json({ message });
+      }
+      console.error("[MANUAL VOTES] Could not add votes:", err);
+      return res.status(500).json({ message: "Could not add the votes. Try again." });
+    }
   });
 
   app.patch("/api/admin/artists/:id", requireAdmin, async (req, res) => {
@@ -518,12 +590,37 @@ export async function registerRoutes(
     if (isNaN(id)) return res.status(400).json({ message: "Invalid artist id" });
     const name = typeof req.body.name === "string" ? req.body.name.trim() : "";
     const imageUrl = typeof req.body.imageUrl === "string" ? req.body.imageUrl.trim() : "";
+    const posterReady = typeof req.body.posterReady === "boolean" ? req.body.posterReady : undefined;
     if (!name) return res.status(400).json({ message: "Name is required" });
     if (!imageUrl) return res.status(400).json({ message: "Image URL is required" });
     try {
-      const updated = await storage.updateArtist(id, { name, imageUrl });
+      const updated = await storage.updateArtist(id, { name, imageUrl, posterReady });
       apiCache.clear();
       audit(req, "update", "artist", id, `Updated nominee details for ${updated.name}`);
+      return res.json(updated);
+    } catch (err: any) {
+      return res.status(404).json({ message: err.message || "Artist not found" });
+    }
+  });
+
+  // Quick toggle in DELETE → MANAGE NOMINEES. This is the flag the Social tab's
+  // poster-only filter reads; it never changes the nominee's photo or votes.
+  app.patch("/api/admin/artists/:id/poster-ready", requireAdmin, async (req, res) => {
+    const id = parseInt(String(req.params.id), 10);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid artist id" });
+    if (typeof req.body?.posterReady !== "boolean") {
+      return res.status(400).json({ message: "posterReady must be true or false" });
+    }
+    try {
+      const updated = await storage.setArtistPosterReady(id, req.body.posterReady);
+      apiCache.clear();
+      audit(
+        req,
+        "update_poster_ready",
+        "artist",
+        id,
+        `${req.body.posterReady ? "Marked" : "Unmarked"} ${updated.name} as having an official poster`,
+      );
       return res.json(updated);
     } catch (err: any) {
       return res.status(404).json({ message: err.message || "Artist not found" });
@@ -571,7 +668,7 @@ export async function registerRoutes(
     let pool = apiCache.get<ArtistResponse[]>("artists:public");
     if (!pool) {
       const all = await storage.getArtists();
-      pool = all.map(({ totalVotes: _v, ...rest }) => rest as ArtistResponse);
+      pool = all.map(({ totalVotes: _v, posterReady: _pr, ...rest }) => rest as ArtistResponse);
       apiCache.set("artists:public", pool, TTL_API);
     }
 
@@ -635,7 +732,7 @@ export async function registerRoutes(
 
     if (isAdmin) return res.json(artist);
 
-    const { totalVotes: _v, ...rest } = artist;
+    const { totalVotes: _v, posterReady: _pr, ...rest } = artist;
     apiCache.set(cacheKey, rest, TTL_API);
     res.set("Cache-Control", "public, max-age=30, stale-while-revalidate=60");
     res.json(rest);
@@ -2156,6 +2253,7 @@ export async function registerRoutes(
     res.json({
       ...status,
       paused: automation.paused,
+      autoStarted: automation.autoStarted,
       lastRunAt: automation.lastRunAt,
       configured: status.connected || Boolean(whatsappConfig()),
     });
@@ -2181,9 +2279,13 @@ export async function registerRoutes(
 
   app.post("/api/admin/whatsapp/logout", requireAdmin, async (req, res) => {
     const { logoutWhatsApp, whatsAppStatus } = await import("./whatsapp-baileys");
-    await logoutWhatsApp();
-    audit(req, "whatsapp_logout", "whatsapp", null, "Unlinked the WhatsApp number");
-    res.json({ ...whatsAppStatus(), configured: Boolean(whatsappConfig()) });
+    try {
+      await logoutWhatsApp();
+      audit(req, "whatsapp_logout", "whatsapp", null, "Unlinked the WhatsApp number");
+      res.json({ ...whatsAppStatus(), configured: Boolean(whatsappConfig()) });
+    } catch (err) {
+      res.status(409).json({ message: err instanceof Error ? err.message : "Could not unlink WhatsApp." });
+    }
   });
 
   app.post("/api/admin/whatsapp/pause", requireAdmin, async (req, res) => {
@@ -2203,6 +2305,7 @@ export async function registerRoutes(
     res.json({
       ...status,
       paused: state.paused,
+      autoStarted: state.autoStarted,
       lastRunAt: state.lastRunAt,
       configured: status.connected || Boolean(whatsappConfig()),
     });
@@ -2245,6 +2348,115 @@ export async function registerRoutes(
       batchSize: WHATSAPP_BATCH_SIZE,
       gapSeconds: Math.round(WHATSAPP_MESSAGE_GAP_MS / 1000),
     });
+  });
+
+  // ─── Admin: social poster automation through Zernio ───────────────────────
+  // The queue is deliberately boring: one poster, one API call, across every
+  // connected platform. The admin can pause it, inspect the next caption, or
+  // publish one immediately; the production timer handles the rest.
+  app.get("/api/admin/social", requireAdmin, noCache, async (_req, res) => {
+    res.json(await getSocialStatus());
+  });
+
+  app.post("/api/admin/social/toggle", requireAdmin, async (req, res) => {
+    if (typeof req.body?.enabled !== "boolean") {
+      return res.status(400).json({ message: "enabled must be true or false" });
+    }
+    if (req.body.enabled) {
+      if (!zernioConfigured()) {
+        return res.status(409).json({ message: "Add ZERNIO_API_KEY in Settings → Environment first." });
+      }
+      try {
+        const accounts = await getSocialAccounts();
+        if (accounts.length === 0) {
+          return res.status(409).json({ message: "Connect at least one social account before enabling auto-posting." });
+        }
+      } catch (err) {
+        return res.status(502).json({
+          message: err instanceof Error ? err.message : "Could not check the Zernio accounts.",
+        });
+      }
+    }
+
+    const state = await setSocialAutomationEnabled(req.body.enabled);
+    audit(
+      req,
+      req.body.enabled ? "social_enable" : "social_pause",
+      "social",
+      null,
+      req.body.enabled ? "Enabled social poster auto-posting" : "Paused social poster auto-posting",
+    );
+    res.json(state);
+  });
+
+  app.post("/api/admin/social/only-with-posters", requireAdmin, async (req, res) => {
+    if (typeof req.body?.onlyWithPosters !== "boolean") {
+      return res.status(400).json({ message: "onlyWithPosters must be true or false" });
+    }
+    const state = await setSocialOnlyWithPosters(req.body.onlyWithPosters);
+    audit(
+      req,
+      "social_poster_filter",
+      "social",
+      null,
+      req.body.onlyWithPosters
+        ? "Social queue restricted to nominees with an official poster"
+        : "Social queue allowed every approved nominee",
+    );
+    res.json(state);
+  });
+
+  app.post("/api/admin/social/post", requireAdmin, async (req, res) => {
+    if (!socialPostingAllowedInThisProcess()) {
+      return res.status(409).json({
+        message: "Social publishing runs on the production server. Open the live admin panel to publish a poster.",
+      });
+    }
+    if (!zernioConfigured()) {
+      return res.status(409).json({ message: "Add ZERNIO_API_KEY in Settings → Environment first." });
+    }
+    const result = await runSocialQueue({ force: true });
+    if (result.claimed) {
+      audit(
+        req,
+        "social_post",
+        "artist",
+        result.artistId ?? null,
+        `Social poster: ${result.artistName ?? "nominee"} — ${result.status ?? "posted"} on ${result.posted} platform(s)`,
+      );
+    }
+    if (!result.claimed && result.reason === "no_accounts") {
+      return res.status(409).json({ message: "Connect at least one of Facebook, TikTok or YouTube first." });
+    }
+    if (!result.claimed && result.reason === "nothing_due") {
+      const status = await getSocialStatus();
+      return res.status(409).json({
+        message:
+          status.onlyWithPosters && status.posterReadyCount === 0
+            ? "No nominees are marked as having an official poster yet. Mark them in DELETE → MANAGE NOMINEES, or turn off the poster-only filter in Social."
+            : "Every eligible poster in the queue has already been posted.",
+      });
+    }
+    res.json(result);
+  });
+
+  app.get("/api/admin/social/connect/:platform", requireAdmin, noCache, async (req, res) => {
+    const platform = String(req.params.platform) as SocialPlatform;
+    if (!(SOCIAL_PLATFORMS as readonly string[]).includes(platform)) {
+      return res.status(400).json({ message: "Choose Facebook, TikTok or YouTube." });
+    }
+    if (!zernioConfigured()) {
+      return res.status(409).json({ message: "Add ZERNIO_API_KEY in Settings → Environment first." });
+    }
+    try {
+      const authUrl = await socialConnectUrl(platform);
+      audit(req, "social_connect_started", "social", platform, `Started connecting ${platform} to Zernio`);
+      res.json({ authUrl });
+    } catch (err) {
+      res.status(502).json({
+        message: err instanceof Error ? err.message : "Could not start the Zernio connection.",
+      });
+    }
   });
 
   // ─── Admin: view and force-recover stuck pending payments ─────────────────

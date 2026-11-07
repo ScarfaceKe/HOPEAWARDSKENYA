@@ -9,6 +9,7 @@ import assert from "node:assert/strict";
 import http from "node:http";
 import express from "express";
 import { VOTING_START } from "../shared/dates";
+import { MAX_MANUAL_VOTES_PER_ADDITION } from "../shared/site";
 import { getRecentAlerts } from "../server/alerts";
 import { enrollmentSecret, generateTotp } from "../server/totp";
 
@@ -113,6 +114,115 @@ test("WhatsApp automation status is admin-only and honest about not being linked
   assert.equal(typeof body.configured, "boolean");
   assert.equal(typeof body.paused, "boolean");
   assert.equal(body.sweepRunning, false);
+});
+
+test("SOCIAL: status is admin-only, never runs in tests, and says when Zernio needs a key", async () => {
+  assert.equal((await get("/api/admin/social")).status, 401);
+
+  // The status endpoint must stay honest without a database or a Zernio key:
+  // it reports the missing setup instead of throwing or pretending to post.
+  const savedKey = process.env.ZERNIO_API_KEY;
+  delete process.env.ZERNIO_API_KEY;
+  try {
+    const { cookie } = await signIn();
+    const res = await get("/api/admin/social", { cookie });
+    assert.equal(res.status, 200);
+
+    const body = (await res.json()) as {
+      configured: boolean;
+      enabled: boolean;
+      onlyWithPosters: boolean;
+      posterReadyCount: number;
+      posterTotalCount: number;
+      remaining: number;
+      accounts: unknown[];
+      missingPlatforms: string[];
+      runsOnThisServer: boolean;
+      error?: string;
+    };
+    assert.equal(body.configured, false);
+    assert.equal(body.enabled, false);
+    // With no database the safe default still applies: post only nominees that
+    // an admin explicitly marked, rather than treating every photo as a poster.
+    assert.equal(body.onlyWithPosters, true);
+    assert.equal(body.posterReadyCount, 0);
+    assert.equal(body.posterTotalCount, 0);
+    assert.equal(body.remaining, 0);
+    assert.deepEqual(body.accounts, []);
+    assert.deepEqual(body.missingPlatforms, ["facebook", "tiktok", "youtube"]);
+    assert.equal(body.runsOnThisServer, false);
+    assert.match(body.error ?? "", /ZERNIO_API_KEY/);
+  } finally {
+    if (savedKey === undefined) delete process.env.ZERNIO_API_KEY;
+    else process.env.ZERNIO_API_KEY = savedKey;
+  }
+});
+
+test("SOCIAL: the poster-only filter and per-nominee poster flag reject bad input before storage", async () => {
+  const { cookie, csrfToken } = await signIn();
+  const headers = { cookie, "x-csrf-token": csrfToken };
+
+  const filter = await post("/api/admin/social/only-with-posters", { onlyWithPosters: "yes" }, headers);
+  assert.equal(filter.status, 400);
+
+  const artistFlag = await fetch(`${base}/api/admin/artists/1/poster-ready`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...headers },
+    body: JSON.stringify({ posterReady: "yes" }),
+  });
+  assert.equal(artistFlag.status, 400);
+});
+
+test("MANUAL VOTES: the switch is admin-only, validated, and must be on before an addition", async () => {
+  assert.equal((await get("/api/admin/manual-votes")).status, 401);
+  assert.equal((await post("/api/admin/manual-votes/toggle", { enabled: true })).status, 403);
+
+  const { cookie, csrfToken } = await signIn();
+  const headers = { cookie, "x-csrf-token": csrfToken };
+
+  const status = await get("/api/admin/manual-votes", { cookie });
+  assert.equal(status.status, 200);
+  const state = (await status.json()) as { enabled: boolean };
+  // No database in this suite: the safe default is off, never "allowed".
+  assert.equal(state.enabled, false);
+
+  const badToggle = await post("/api/admin/manual-votes/toggle", { enabled: "yes" }, headers);
+  assert.equal(badToggle.status, 400);
+
+  const addVotes = (add: unknown) =>
+    fetch(`${base}/api/artists/1/votes`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...headers },
+      body: JSON.stringify({ add }),
+    });
+
+  assert.equal((await addVotes(0)).status, 400, "zero is not an addition");
+  assert.equal((await addVotes(1.5)).status, 400, "votes are whole numbers");
+  assert.equal(
+    (await addVotes(MAX_MANUAL_VOTES_PER_ADDITION + 1)).status,
+    400,
+    "one correction cannot exceed the per-addition ceiling",
+  );
+
+  const off = await addVotes(10);
+  assert.equal(off.status, 409, "with the switch off the request must not reach the vote update");
+  const offBody = (await off.json()) as { message?: string };
+  assert.match(offBody.message ?? "", /turned off/i);
+});
+
+test("SOCIAL: a preview process cannot publish to the live pages", async () => {
+  const savedOverride = process.env.SOCIAL_ALLOW_DEV_POSTS;
+  delete process.env.SOCIAL_ALLOW_DEV_POSTS;
+  try {
+    const { cookie, csrfToken } = await signIn();
+    const res = await post("/api/admin/social/post", {}, { cookie, "x-csrf-token": csrfToken });
+    assert.equal(res.status, 409);
+    const body = (await res.json()) as { message: string };
+    assert.match(body.message, /production/i);
+  } finally {
+    if (savedOverride === undefined) delete process.env.SOCIAL_ALLOW_DEV_POSTS;
+    else process.env.SOCIAL_ALLOW_DEV_POSTS = savedOverride;
+  }
 });
 
 test("CSRF: the approve flow's POST /api/artists is refused bare and cleared with the token", async () => {

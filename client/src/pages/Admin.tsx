@@ -3,12 +3,13 @@ import { useLocation, useSearch } from "wouter";
 import { useCreateArtist } from "@/hooks/use-artists";
 import { useToast } from "@/hooks/use-toast";
 import { motion } from "framer-motion";
-import { ShieldAlert, ShieldCheck, KeyRound, Activity, Plus, Mic2, Image as ImageIcon, Lock, LogOut, Check, X, Inbox, Search, Trash2, Upload, Users, AlertTriangle, Download, BarChart2, Shuffle, Pencil, Loader2, Tags, Smartphone } from "lucide-react";
+import { ShieldAlert, ShieldCheck, KeyRound, Activity, Plus, Mic2, Image as ImageIcon, Lock, LogOut, Check, X, Inbox, Search, Trash2, Upload, Users, AlertTriangle, Download, BarChart2, Shuffle, Pencil, Loader2, Tags, Smartphone, Facebook, Music2, Youtube, Share2, RefreshCw, Send, Pause, Play } from "lucide-react";
 import { CATEGORY_CAP } from "@shared/schema";
-import { USSD_SHORTCODE, ussdNomineeCode } from "@shared/site";
+import { MAX_MANUAL_VOTES_PER_ADDITION, USSD_SHORTCODE, ussdNomineeCode } from "@shared/site";
 import { formatPairingCode, pairingCodeSecondsLeft } from "@shared/pairing";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest, csrfFetch } from "@/lib/queryClient";
+import { Switch } from "@/components/ui/switch";
 import { useCategories } from "@/hooks/use-categories";
 import { setCsrfToken, csrfHeaders, getCsrfToken } from "@/lib/csrf";
 import { approvalFailure } from "@/lib/approvalError";
@@ -193,6 +194,33 @@ function AdminLogin({ onLogin }: { onLogin: () => void }) {
   );
 }
 
+const SOCIAL_PLATFORM_META = [
+  {
+    id: "facebook",
+    label: "Facebook",
+    hint: "Hope Awards Kenya Page",
+    icon: Facebook,
+    className: "border-[#1877F2]/35 bg-[#1877F2]/10",
+    iconClassName: "text-[#4A9EFF]",
+  },
+  {
+    id: "tiktok",
+    label: "TikTok",
+    hint: "@hopeawardske",
+    icon: Music2,
+    className: "border-white/20 bg-white/5",
+    iconClassName: "text-white",
+  },
+  {
+    id: "youtube",
+    label: "YouTube",
+    hint: "20s poster video + gospel sound",
+    icon: Youtube,
+    className: "border-[#FF0000]/35 bg-[#FF0000]/10",
+    iconClassName: "text-[#FF5A5A]",
+  },
+] as const;
+
 export default function Admin() {
   const [, setLocation] = useLocation();
   const search = useSearch();
@@ -205,7 +233,9 @@ export default function Admin() {
 
   const [isAuthed, setIsAuthed] = useState(false);
   const [checking, setChecking] = useState(true);
-  const [activeTab, setActiveTab] = useState<"add" | "categories" | "requests" | "waitlist" | "approved" | "delete" | "votes" | "security">("add");
+  const [activeTab, setActiveTab] = useState<"add" | "categories" | "requests" | "waitlist" | "approved" | "delete" | "votes" | "social" | "security">(
+    params.get("social") ? "social" : "add",
+  );
   const [approvedSearch, setApprovedSearch] = useState("");
   const [approvedCategory, setApprovedCategory] = useState("");
   const [uploadMode, setUploadMode] = useState<"url" | "file">("url");
@@ -219,6 +249,7 @@ export default function Admin() {
   const [editingArtistId, setEditingArtistId] = useState<number | null>(null);
   const [editingArtistName, setEditingArtistName] = useState("");
   const [editingArtistImageUrl, setEditingArtistImageUrl] = useState("");
+  const [editingArtistPosterReady, setEditingArtistPosterReady] = useState(false);
   const [editingArtistUploading, setEditingArtistUploading] = useState(false);
   const uploadAbortRef = useRef<AbortController | null>(null);
 
@@ -325,6 +356,9 @@ export default function Admin() {
     imageUrl: "",
     category: presetCategory || categories[0]?.id || "",
     bio: "",
+    // Opt-in, never inferred from the presence of a photo: most nominees only
+    // have an ordinary profile picture, not the finished official poster.
+    posterReady: false,
   });
 
   useEffect(() => {
@@ -382,6 +416,17 @@ export default function Admin() {
     refetchInterval: 5_000,
   });
   const [waPhone, setWaPhone] = useState("");
+
+  // Social posters are slower than WhatsApp by design (one every 4 hours),
+  // so a 15-second refresh is enough to show the queue moving without hammering
+  // the Zernio API.
+  const { data: social, refetch: refetchSocial } = useQuery<any>({
+    queryKey: ["/api/admin/social"],
+    enabled: isAuthed,
+    // Only poll while the Social tab is open: the status call asks Zernio for
+    // the connected accounts, and the rest of the admin panel does not need it.
+    refetchInterval: activeTab === "social" ? 30_000 : false,
+  });
 
   // The linking code is short-lived, so show the admin exactly how long is
   // left instead of letting them find out on the phone. The ticker only runs
@@ -519,6 +564,94 @@ export default function Admin() {
     },
   });
 
+  const toggleSocialMutation = useMutation({
+    mutationFn: async (enabled: boolean) => {
+      const res = await apiRequest("POST", "/api/admin/social/toggle", { enabled });
+      return (await res.json()) as any;
+    },
+    onSuccess: (_data: any, enabled: boolean) => {
+      refetchSocial();
+      toast({
+        title: enabled ? "AUTO-POSTING ON" : "AUTO-POSTING PAUSED",
+        description: enabled
+          ? "The next poster goes out at the next queue check (within five minutes), then one every 4 hours across every connected account."
+          : "Nothing new will publish automatically. Already posted posters stay live.",
+      });
+    },
+    onError: (err: any) => {
+      toast({ title: "Could not change auto-posting", description: err?.message || "Try again.", variant: "destructive" });
+    },
+  });
+
+  const posterFilterMutation = useMutation({
+    mutationFn: async (onlyWithPosters: boolean) => {
+      const res = await apiRequest("POST", "/api/admin/social/only-with-posters", { onlyWithPosters });
+      return (await res.json()) as any;
+    },
+    onSuccess: (_data: any, onlyWithPosters: boolean) => {
+      refetchSocial();
+      toast({
+        title: onlyWithPosters ? "POSTER-ONLY QUEUE ON" : "POSTER FILTER OFF",
+        description: onlyWithPosters
+          ? "Only nominees you marked as having an official poster will be posted."
+          : "Every approved nominee's current photo is now eligible. Use this only when you are sure the photos are finished posters.",
+        variant: onlyWithPosters ? undefined : "destructive",
+      });
+    },
+    onError: (err: any) => {
+      toast({ title: "Could not change the poster filter", description: err?.message || "Try again.", variant: "destructive" });
+    },
+  });
+
+  const postSocialMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/admin/social/post");
+      return (await res.json()) as any;
+    },
+    onSuccess: (data: any) => {
+      const ok = data?.status === "published";
+      const partial = data?.status === "partial";
+      const queued = data?.status === "queued";
+      toast({
+        title: ok
+          ? "POSTER PUBLISHED"
+          : partial
+            ? "POSTER PARTIALLY PUBLISHED"
+            : queued
+              ? "POSTER QUEUED"
+              : "POSTER DID NOT PUBLISH",
+        description: ok
+          ? `${data?.artistName ?? "The nominee"} is live on ${data?.posted ?? 0} platform(s).`
+          : partial
+            ? `${data?.artistName ?? "The nominee"} is live where the platform accepted it. Check the per-platform result below.`
+            : queued
+              ? "A platform is holding the post for its daily limit; Zernio will publish it automatically. The next poster can continue."
+              : data?.error || "Check the Zernio connection and try again.",
+        variant: ok || partial || queued ? undefined : "destructive",
+        className: ok ? "bg-secondary/90 text-black border-none font-display" : undefined,
+      });
+      refetchSocial();
+    },
+    onError: (err: any) => {
+      toast({ title: "Could not publish the poster", description: err?.message || "Try again.", variant: "destructive" });
+    },
+  });
+
+  const connectSocialMutation = useMutation({
+    mutationFn: async (platform: string) => {
+      const res = await fetch(`/api/admin/social/connect/${platform}`, { credentials: "include" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.message || "Could not start the connection.");
+      return data.authUrl as string;
+    },
+    onSuccess: (authUrl: string) => {
+      window.location.href = authUrl;
+    },
+    onError: (err: any) => {
+      toast({ title: "Could not connect the account", description: err?.message || "Try again.", variant: "destructive" });
+    },
+  });
+
   const moveCategoryMutation = useMutation({
     mutationFn: async ({ id, category, keepApproved }: { id: number; category: string; keepApproved?: boolean }) => {
       const body: any = { category };
@@ -568,7 +701,7 @@ export default function Admin() {
     onSuccess: (_data, vars) => {
       toast({
         title: "VOTES ADDED",
-        description: `${vars.add} vote${vars.add === 1 ? "" : "s"} added successfully. Live site updated.`,
+        description: `${vars.add} vote${vars.add === 1 ? "" : "s"} added. The nominee's live total is now updated.`,
         className: "bg-primary/90 text-black border-none font-display",
       });
       setAddAmounts((prev) => ({ ...prev, [vars.id]: "" }));
@@ -576,6 +709,40 @@ export default function Admin() {
     },
     onError: (err: any) => {
       toast({ title: "Failed", description: err?.message || "Could not add votes. Try again.", variant: "destructive" });
+    },
+  });
+
+  const { data: manualVoteSettings, isLoading: loadingManualVoteSettings, refetch: refetchManualVoteSettings } = useQuery<{
+    enabled: boolean;
+  }>({
+    queryKey: ["/api/admin/manual-votes"],
+    enabled: isAuthed,
+  });
+  const manualVotesEnabled = manualVoteSettings?.enabled === true;
+
+  const toggleManualVotesMutation = useMutation({
+    mutationFn: async (enabled: boolean) => {
+      const res = await apiRequest("POST", "/api/admin/manual-votes/toggle", { enabled });
+      return (await res.json()) as { enabled: boolean };
+    },
+    onSuccess: (data, enabled) => {
+      queryClient.setQueryData(["/api/admin/manual-votes"], data);
+      // Turning it off must also remove any half-typed additions immediately.
+      if (!enabled) setAddAmounts({});
+      toast({
+        title: enabled ? "MANUAL VOTE ADDITIONS ON" : "MANUAL VOTE ADDITIONS OFF",
+        description: enabled
+          ? "Each nominee now has an ADD VOTES control. Additions are cumulative and audited."
+          : "The add-vote controls are hidden and the server will reject any additions.",
+      });
+    },
+    onError: (err: any) => {
+      refetchManualVoteSettings();
+      toast({
+        title: "Could not change manual additions",
+        description: err?.message || "Try again.",
+        variant: "destructive",
+      });
     },
   });
 
@@ -673,18 +840,40 @@ export default function Admin() {
   });
 
   const updateArtistMutation = useMutation({
-    mutationFn: async ({ id, name, imageUrl }: { id: number; name: string; imageUrl: string }) => {
-      await apiRequest("PATCH", `/api/admin/artists/${id}`, { name, imageUrl });
+    mutationFn: async ({ id, name, imageUrl, posterReady }: { id: number; name: string; imageUrl: string; posterReady: boolean }) => {
+      await apiRequest("PATCH", `/api/admin/artists/${id}`, { name, imageUrl, posterReady });
     },
     onSuccess: () => {
-      toast({ title: "SAVED", description: "Nominee name and photo updated.", className: "bg-secondary text-secondary-foreground border-none font-display" });
+      toast({ title: "SAVED", description: "Nominee details and poster status updated.", className: "bg-secondary text-secondary-foreground border-none font-display" });
       setEditingArtistId(null);
       setEditingArtistName("");
       setEditingArtistImageUrl("");
+      setEditingArtistPosterReady(false);
       queryClient.invalidateQueries({ queryKey: ["/api/artists"] });
+      refetchSocial();
     },
     onError: (err: any) => {
       toast({ title: "Save failed", description: err?.message || "Could not save. Try again.", variant: "destructive" });
+    },
+  });
+
+  const posterReadyMutation = useMutation({
+    mutationFn: async ({ id, posterReady }: { id: number; posterReady: boolean }) => {
+      await apiRequest("PATCH", `/api/admin/artists/${id}/poster-ready`, { posterReady });
+    },
+    onSuccess: (_data, vars) => {
+      toast({
+        title: vars.posterReady ? "OFFICIAL POSTER MARKED" : "POSTER MARK REMOVED",
+        description: vars.posterReady
+          ? "This nominee can now enter the social queue."
+          : "This nominee will be skipped while the poster-only filter is on.",
+        className: vars.posterReady ? "bg-secondary text-secondary-foreground border-none font-display" : undefined,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/artists"] });
+      refetchSocial();
+    },
+    onError: (err: any) => {
+      toast({ title: "Could not update poster status", description: err?.message || "Try again.", variant: "destructive" });
     },
   });
 
@@ -784,7 +973,7 @@ export default function Admin() {
     createArtist(formData, {
       onSuccess: () => {
         toast({ title: "SUCCESS!", description: `${formData.name} added to the competition.`, className: "bg-secondary text-secondary-foreground border-none font-display" });
-        setFormData({ name: "", genre: "", imageUrl: "", category: formData.category, bio: "" });
+        setFormData({ name: "", genre: "", imageUrl: "", category: formData.category, bio: "", posterReady: false });
       },
       onError: (err) => {
         toast({ title: "Error", description: err.message, variant: "destructive" });
@@ -1025,6 +1214,19 @@ export default function Admin() {
               >
                 {approvedRequests.length}
               </span>
+            )}
+          </button>
+          <button
+            onClick={() => setActiveTab("social")}
+            data-testid="tab-social"
+            className={`px-6 py-3 rounded-xl font-display text-sm tracking-wider transition-all relative ${
+              activeTab === "social" ? "bg-[#E1306C] text-white" : "bg-white/5 text-muted-foreground hover:bg-white/10"
+            }`}
+          >
+            <Share2 className="w-4 h-4 inline mr-2" />
+            SOCIAL
+            {social?.enabled && (
+              <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-emerald-400 border-2 border-background" />
             )}
           </button>
           <button
@@ -1346,6 +1548,22 @@ export default function Admin() {
                     </div>
                   )}
                 </div>
+
+                <label className="flex items-start gap-3 rounded-xl border border-secondary/25 bg-secondary/5 p-4 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={formData.posterReady}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, posterReady: e.target.checked }))}
+                    data-testid="checkbox-poster-ready"
+                    className="mt-0.5 h-4 w-4 shrink-0 accent-[#E1306C] cursor-pointer"
+                  />
+                  <span>
+                    <span className="block text-sm font-bold text-white">Official poster is ready</span>
+                    <span className="block text-xs text-muted-foreground mt-0.5 leading-relaxed">
+                      Tick this only when the photo above is the finished Hope Awards poster. The social queue only publishes nominees with this box ticked while the poster-only filter is on. Leave it unticked for an ordinary profile photo.
+                    </span>
+                  </span>
+                </label>
               </div>
 
               <button
@@ -1573,7 +1791,8 @@ export default function Admin() {
                   <p className="text-[11px] font-bold tracking-widest text-amber-300">AUTOMATION PAUSED</p>
                   <p className="text-xs text-amber-100/80 mt-1 leading-relaxed">
                     No automatic or bulk messages will be sent. Links already delivered still work. Press RESUME when the number is clear —
-                    the pause survives a restart or deploy.
+                    the pause survives a restart or deploy. Linking a number no longer makes you come back and press RESUME:
+                    the first successful connection starts the queue once, then the pause button is always in charge.
                   </p>
                 </div>
               )}
@@ -1623,9 +1842,9 @@ export default function Admin() {
               ) : (
                 <>
                   <p className="text-xs text-muted-foreground mt-2 leading-relaxed">
-                    {whatsapp?.paused
-                      ? "The number is paused, so nothing will send when you link it. Connect it now, then press RESUME when the restriction is over."
-                      : "Link the awards' WhatsApp number once, here. After that every nominee — the ones already live and every new approval — gets the congratulations message and their voting link with no clicks from you."}
+                    {whatsapp?.paused && whatsapp?.autoStarted
+                      ? "Automation is paused. Press RESUME when the number is clear; the pause survives a restart or deploy."
+                      : "Link the awards' WhatsApp number once, here. The first successful connection starts the automatic queue, and every nominee — already live or approved later — gets their link 5 at a time with no extra clicks from you."}
                   </p>
                   <p className="text-xs text-muted-foreground mt-2 leading-relaxed">
                     Before you ask for a code, open WhatsApp on the awards phone → <span className="text-white">Settings → Linked devices →
@@ -1924,6 +2143,15 @@ export default function Admin() {
                             <h4 className="font-display text-lg text-white truncate">{artist.name}</h4>
                             <p className="text-xs text-primary font-bold truncate">{categoryName(artist.category)}</p>
                             <p className="text-xs text-muted-foreground mt-0.5">{artist.totalVotes} {artist.totalVotes === 1 ? "vote" : "votes"}</p>
+                            <button
+                              onClick={() => posterReadyMutation.mutate({ id: artist.id, posterReady: !artist.posterReady })}
+                              disabled={posterReadyMutation.isPending}
+                              data-testid={`button-poster-ready-${artist.id}`}
+                              title={artist.posterReady ? "Tap to remove the official-poster mark" : "Tap to allow this nominee in the poster-only social queue"}
+                              className={`mt-1.5 inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border transition-colors disabled:opacity-50 ${artist.posterReady ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/25" : "bg-white/5 text-muted-foreground border-white/10 hover:bg-white/10 hover:text-white"}`}
+                            >
+                              {artist.posterReady ? <><Check className="w-3 h-3" /> OFFICIAL POSTER</> : <>NO OFFICIAL POSTER · MARK</>}
+                            </button>
                             {artist.bio && !isEditingBio && !isEditingArtist && (
                               <p className="text-xs text-white/40 mt-1 truncate italic">{artist.bio}</p>
                             )}
@@ -1956,10 +2184,12 @@ export default function Admin() {
                                       setEditingArtistId(null);
                                       setEditingArtistName("");
                                       setEditingArtistImageUrl("");
+                                      setEditingArtistPosterReady(false);
                                     } else {
                                       setEditingArtistId(artist.id);
                                       setEditingArtistName(artist.name);
                                       setEditingArtistImageUrl(artist.imageUrl);
+                                      setEditingArtistPosterReady(artist.posterReady === true);
                                       setEditingBioId(null);
                                       setConfirmDeleteId(null);
                                     }
@@ -2042,10 +2272,25 @@ export default function Admin() {
                                   </div>
                                 )}
                               </div>
+                              <label className="flex items-start gap-3 rounded-xl border border-secondary/25 bg-secondary/5 p-3 cursor-pointer select-none">
+                                <input
+                                  type="checkbox"
+                                  checked={editingArtistPosterReady}
+                                  onChange={(e) => setEditingArtistPosterReady(e.target.checked)}
+                                  data-testid={`checkbox-edit-poster-ready-${artist.id}`}
+                                  className="mt-0.5 h-4 w-4 shrink-0 accent-[#E1306C] cursor-pointer"
+                                />
+                                <span>
+                                  <span className="block text-xs font-bold text-white">Official poster is ready</span>
+                                  <span className="block text-[11px] text-muted-foreground mt-0.5">
+                                    Only tick this when the photo above is the finished campaign poster. Ordinary profile photos stay out of the poster-only queue.
+                                  </span>
+                                </span>
+                              </label>
                             </div>
                             <div className="flex gap-2 mt-3">
                               <button
-                                onClick={() => updateArtistMutation.mutate({ id: artist.id, name: editingArtistName, imageUrl: editingArtistImageUrl })}
+                                onClick={() => updateArtistMutation.mutate({ id: artist.id, name: editingArtistName, imageUrl: editingArtistImageUrl, posterReady: editingArtistPosterReady })}
                                 disabled={updateArtistMutation.isPending || !editingArtistName.trim() || !editingArtistImageUrl.trim()}
                                 data-testid={`button-save-artist-${artist.id}`}
                                 className="px-4 py-2 bg-secondary text-black rounded-xl hover:bg-secondary/90 transition-all flex items-center gap-1.5 text-sm font-bold disabled:opacity-40"
@@ -2053,7 +2298,7 @@ export default function Admin() {
                                 <Check className="w-4 h-4" /> {updateArtistMutation.isPending ? "SAVING…" : "SAVE CHANGES"}
                               </button>
                               <button
-                                onClick={() => { setEditingArtistId(null); setEditingArtistName(""); setEditingArtistImageUrl(""); }}
+                                onClick={() => { setEditingArtistId(null); setEditingArtistName(""); setEditingArtistImageUrl(""); setEditingArtistPosterReady(false); }}
                                 data-testid={`button-cancel-edit-artist-${artist.id}`}
                                 className="px-4 py-2 bg-white/5 border border-white/10 text-muted-foreground rounded-xl hover:bg-white/10 transition-all text-sm font-bold"
                               >
@@ -2114,6 +2359,64 @@ export default function Admin() {
 
         {activeTab === "votes" && (
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
+            <div
+              className={`rounded-2xl border p-5 sm:p-6 transition-colors ${
+                manualVotesEnabled
+                  ? "border-emerald-400/30 bg-emerald-500/[0.07]"
+                  : "border-white/10 bg-card"
+              }`}
+            >
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="flex items-start gap-3">
+                  <div
+                    className={`w-10 h-10 rounded-xl border flex items-center justify-center shrink-0 ${
+                      manualVotesEnabled
+                        ? "border-emerald-400/40 bg-emerald-500/15 text-emerald-300"
+                        : "border-white/10 bg-white/5 text-muted-foreground"
+                    }`}
+                  >
+                    <Plus className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-display text-lg text-white tracking-wide">MANUAL VOTE ADDITIONS</h3>
+                    <p className="text-xs text-muted-foreground mt-1 max-w-xl leading-relaxed">
+                      {manualVotesEnabled
+                        ? "The add-vote controls are visible on every nominee below. This is a live correction to the public tally, not a test."
+                        : "Turn this on to reveal an ADD VOTES control on every nominee below. Off means the controls are hidden and the server refuses additions."}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 shrink-0 self-end sm:self-auto">
+                  <span
+                    className={`text-xs font-bold tracking-widest ${
+                      manualVotesEnabled ? "text-emerald-300" : "text-muted-foreground"
+                    }`}
+                    data-testid="text-manual-votes-status"
+                  >
+                    {loadingManualVoteSettings ? "CHECKING…" : manualVotesEnabled ? "ON" : "OFF"}
+                  </span>
+                  <Switch
+                    checked={manualVotesEnabled}
+                    onCheckedChange={(checked) => toggleManualVotesMutation.mutate(checked)}
+                    disabled={loadingManualVoteSettings || toggleManualVotesMutation.isPending}
+                    aria-label="Toggle manual vote additions"
+                    data-testid="toggle-manual-votes"
+                    className="data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-white/15"
+                  />
+                </div>
+              </div>
+
+              {manualVotesEnabled && (
+                <div className="mt-4 rounded-xl border border-emerald-400/20 bg-black/20 px-4 py-3">
+                  <p className="text-xs text-emerald-100/80 leading-relaxed">
+                    <strong className="text-emerald-300">Additions are cumulative.</strong> If a nominee has 20
+                    votes and you add 10, their total becomes 30. Nothing is replaced. Every addition is written to the
+                    admin audit log.
+                  </p>
+                </div>
+              )}
+            </div>
+
             <div className="bg-card border border-white/10 rounded-2xl p-6 sm:p-8">
               <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
                 <div>
@@ -2191,7 +2494,11 @@ export default function Admin() {
                       const catName = categoryName(artist.category);
                       const addVal = addAmounts[artist.id] ?? "";
                       const addNum = parseInt(addVal, 10);
-                      const canAdd = Number.isInteger(addNum) && addNum > 0;
+                      const canAdd =
+                        Number.isInteger(addNum) && addNum > 0 && addNum <= MAX_MANUAL_VOTES_PER_ADDITION;
+                      const isAdding =
+                        addVotesMutation.isPending && addVotesMutation.variables?.id === artist.id;
+                      const newTotal = (Number(artist.totalVotes) || 0) + (canAdd ? addNum : 0);
                       return (
                         <div
                           key={artist.id}
@@ -2219,6 +2526,59 @@ export default function Admin() {
                             >
                               USSD {ussdNomineeCode(artist.id)}
                             </p>
+
+                            {manualVotesEnabled && (
+                              <div className="mt-3 flex flex-wrap items-center gap-2">
+                                <input
+                                  type="number"
+                                  inputMode="numeric"
+                                  min={1}
+                                  max={MAX_MANUAL_VOTES_PER_ADDITION}
+                                  step={1}
+                                  value={addVal}
+                                  onChange={(e) => {
+                                    const raw = e.target.value.replace(/[^0-9]/g, "");
+                                    setAddAmounts((prev) => ({ ...prev, [artist.id]: raw }));
+                                  }}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter" && canAdd && !isAdding) {
+                                      e.preventDefault();
+                                      addVotesMutation.mutate({ id: artist.id, add: addNum });
+                                    }
+                                  }}
+                                  aria-label={`Votes to add to ${artist.name}`}
+                                  data-testid={`input-add-votes-${artist.id}`}
+                                  placeholder="Votes to add"
+                                  className="w-32 rounded-lg border border-emerald-400/25 bg-black/40 px-3 py-2 text-sm text-white placeholder:text-white/25 focus:outline-none focus:border-emerald-400/60 focus:ring-1 focus:ring-emerald-400/30 transition-all"
+                                />
+                                <button
+                                  onClick={() => addVotesMutation.mutate({ id: artist.id, add: addNum })}
+                                  disabled={!canAdd || isAdding}
+                                  data-testid={`button-add-votes-${artist.id}`}
+                                  className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-emerald-500 px-3 py-2 text-xs font-bold text-black transition-all hover:bg-emerald-400 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
+                                >
+                                  {isAdding ? (
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                  ) : (
+                                    <Plus className="w-3.5 h-3.5" />
+                                  )}
+                                  {isAdding ? "ADDING…" : "ADD VOTES"}
+                                </button>
+                                {canAdd && (
+                                  <span
+                                    className="text-[11px] font-bold text-emerald-300/80"
+                                    data-testid={`new-total-${artist.id}`}
+                                  >
+                                    New total: {newTotal.toLocaleString()}
+                                  </span>
+                                )}
+                                {addVal && !canAdd && (
+                                  <span className="text-[11px] font-bold text-amber-300/80">
+                                    1–{MAX_MANUAL_VOTES_PER_ADDITION.toLocaleString()} at a time
+                                  </span>
+                                )}
+                              </div>
+                            )}
                           </div>
                           <div className="shrink-0 text-right">
                             <p className="text-xl font-display text-secondary font-bold" data-testid={`votes-count-${artist.id}`}>
@@ -2328,6 +2688,299 @@ export default function Admin() {
                     </div>
                   ))}
                 </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+
+        {activeTab === "social" && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="space-y-6"
+            data-testid="social-automation"
+          >
+            <div className="bg-card border border-white/10 rounded-2xl p-6 md:p-8 shadow-2xl">
+              <div className="flex flex-col sm:flex-row sm:items-start gap-4">
+                <div className="w-12 h-12 rounded-2xl bg-[#E1306C]/15 border border-[#E1306C]/35 flex items-center justify-center shrink-0">
+                  <Share2 className="w-6 h-6 text-[#FF5A9E]" />
+                </div>
+                <div className="flex-1">
+                  <h2 className="font-display text-2xl md:text-3xl text-white tracking-wide">SOCIAL POSTER STUDIO</h2>
+                  <p className="text-sm text-muted-foreground mt-1 leading-relaxed max-w-3xl">
+                    Only nominees you mark as having an <span className="text-white">official poster</span> are queued. Facebook and TikTok
+                    get the still poster; YouTube gets a 20-second vertical video of that poster with an original gospel organ instrumental.
+                    Every caption is built from <span className="text-white">that nominee's</span> name, category, USSD code and public page —
+                    never a generic caption that can land on the wrong poster. Instagram is intentionally left untouched.
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-2 leading-relaxed">
+                    Posters come from each nominee's photo in this admin panel — not from Zernio. Add a new one with{" "}
+                    <span className="text-white">ADD ARTIST</span> (tick "Official poster is ready" only if that upload is the finished poster), replace one in{" "}
+                    <span className="text-white">DELETE → EDIT → Upload new photo</span>, or tap the{" "}
+                    <span className="text-white">NO OFFICIAL POSTER · MARK</span> pill on any nominee whose uploaded photo is already the finished poster.
+                  </p>
+                </div>
+                <span
+                  className={`shrink-0 inline-flex items-center gap-1.5 text-[11px] font-bold px-3 py-1.5 rounded-full ${
+                    !social?.configured
+                      ? "bg-amber-500/15 text-amber-300"
+                      : social?.enabled
+                        ? "bg-emerald-500/15 text-emerald-300"
+                        : "bg-white/5 text-muted-foreground"
+                  }`}
+                >
+                  <span className={`w-1.5 h-1.5 rounded-full ${!social?.configured ? "bg-amber-400" : social?.enabled ? "bg-emerald-400" : "bg-white/40"}`} />
+                  {!social?.configured ? "SETUP NEEDED" : social?.enabled ? "AUTO-POSTING ON" : "PAUSED"}
+                </span>
+              </div>
+
+              {params.get("social") === "connected" && (
+                <div className="mt-5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
+                  Zernio returned from the connection flow. Refresh the accounts below and connect any remaining platform.
+                </div>
+              )}
+
+              {social && (
+                <div className={`mt-5 rounded-2xl border p-4 ${social.onlyWithPosters ? "border-emerald-500/30 bg-emerald-500/5" : "border-amber-500/40 bg-amber-500/10"}`}>
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+                    <div className="flex-1">
+                      <p className="text-sm font-bold text-white flex items-center gap-2">
+                        <ImageIcon className="w-4 h-4" />
+                        ONLY POST NOMINEES WITH AN OFFICIAL POSTER
+                        <span className={`text-[10px] px-2 py-0.5 rounded-full ${social.onlyWithPosters ? "bg-emerald-500/20 text-emerald-300" : "bg-amber-500/20 text-amber-200"}`}>
+                          {social.onlyWithPosters ? "ON" : "OFF"}
+                        </span>
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                        {social.posterReadyCount ?? 0} of {social.posterTotalCount ?? 0} nominees are marked as poster-ready.
+                        {" "}
+                        {social.onlyWithPosters
+                          ? "Unmarked nominees are skipped completely, so an ordinary profile photo cannot be published as a poster. Mark them in DELETE → MANAGE NOMINEES."
+                          : "Warning: every approved nominee is eligible, including those without a finished official poster."}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => posterFilterMutation.mutate(!social.onlyWithPosters)}
+                      disabled={posterFilterMutation.isPending}
+                      data-testid="button-poster-filter"
+                      className={`shrink-0 px-4 py-2.5 rounded-xl text-xs font-bold transition-colors disabled:opacity-40 ${social.onlyWithPosters ? "bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/25" : "bg-amber-500/20 border border-amber-500/40 text-amber-100 hover:bg-amber-500/30"}`}
+                    >
+                      {posterFilterMutation.isPending
+                        ? "…"
+                        : social.onlyWithPosters
+                          ? "TURN FILTER OFF"
+                          : "TURN POSTER FILTER ON"}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {!social?.configured ? (
+                <div className="mt-6 rounded-2xl border border-amber-500/35 bg-amber-500/10 p-5 md:p-6">
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle className="w-5 h-5 text-amber-400" />
+                    <p className="font-display text-lg text-amber-200 tracking-wide">ONE KEY, THEN CONNECT</p>
+                  </div>
+                  <ol className="mt-3 space-y-2 text-sm text-amber-100/85 list-decimal list-inside leading-relaxed">
+                    <li>Get an API key at <a href="https://zernio.com" target="_blank" rel="noreferrer" className="text-white underline underline-offset-4">zernio.com</a> (Settings → API Keys).</li>
+                    <li>Add it in <strong className="text-white">Settings → Environment</strong> as <code className="bg-black/40 px-1.5 py-0.5 rounded text-amber-200">ZERNIO_API_KEY</code>.</li>
+                    <li>Come back here, press refresh, and connect the Hope Awards Facebook Page, TikTok and YouTube channel.</li>
+                    <li>YouTube uploads are rendered automatically as vertical videos with a gospel instrumental — you never upload a song or video yourself.</li>
+                  </ol>
+                  <p className="mt-4 text-xs text-amber-100/60 leading-relaxed">
+                    The integration uses the official{" "}
+                    <a href="https://github.com/zernio-dev/zernio-node" target="_blank" rel="noreferrer" className="text-white underline underline-offset-4">
+                      zernio-dev/zernio-node
+                    </a>{" "}
+                    repository. No second app or server is needed: this panel is the queue.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  {social?.error && (
+                    <div className="mt-5 rounded-xl border border-red-500/35 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+                      {social.error}
+                    </div>
+                  )}
+
+                  <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 mt-6">
+                    {SOCIAL_PLATFORM_META.map((platform) => {
+                      const account = (social?.accounts ?? []).find((a: any) => a.platform === platform.id);
+                      const connected = Boolean(account) && !account?.needsReconnection;
+                      const Icon = platform.icon;
+                      return (
+                        <div key={platform.id} className={`rounded-2xl border ${platform.className} p-4`}>
+                          <div className="flex items-center gap-2">
+                            <Icon className={`w-4 h-4 ${platform.iconClassName}`} />
+                            <p className="text-sm font-bold text-white">{platform.label}</p>
+                            <span className={`ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full ${connected ? "bg-emerald-500/15 text-emerald-300" : account?.needsReconnection ? "bg-amber-500/15 text-amber-300" : "bg-black/30 text-white/40"}`}>
+                              {connected ? "CONNECTED" : account?.needsReconnection ? "RECONNECT" : "NOT CONNECTED"}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-muted-foreground mt-1 truncate">
+                            {account ? `@${account.username ?? platform.hint.replace(/^@/, "")}` : platform.hint}
+                          </p>
+                          <button
+                            onClick={() => connectSocialMutation.mutate(platform.id)}
+                            disabled={connectSocialMutation.isPending}
+                            className="mt-3 w-full px-3 py-2 rounded-xl bg-black/35 border border-white/10 text-[11px] font-bold text-white/80 hover:bg-black/55 hover:text-white transition-colors disabled:opacity-40"
+                          >
+                            {connectSocialMutation.isPending && connectSocialMutation.variables === platform.id
+                              ? "OPENING ZERNIO…"
+                              : account || account?.needsReconnection
+                                ? "RECONNECT"
+                                : `CONNECT ${platform.label.toUpperCase()}`}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div className="flex flex-col lg:flex-row lg:items-center gap-4 mt-6 rounded-2xl border border-white/10 bg-black/30 p-4">
+                    <div className="flex-1">
+                      <p className="text-sm font-bold text-white">
+                        {social?.remaining ?? 0} {social?.onlyWithPosters ? "poster-ready nominee" : "poster"}{(social?.remaining ?? 0) === 1 ? "" : "s"} waiting
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                        {social?.enabled
+                          ? "The next eligible poster publishes automatically, then one every 4 hours. That keeps YouTube at six uploads a day, inside its API quota. Pausing never deletes the queue."
+                          : "Press START AUTO-POSTING to send the next poster at the next queue check (within five minutes). Pausing never deletes the queue."}
+                        {social && !social.runsOnThisServer && " Automatic and manual publishing run on the production server; this preview will not post to the live pages."}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        onClick={() => toggleSocialMutation.mutate(!social?.enabled)}
+                        disabled={toggleSocialMutation.isPending || (!social?.enabled && (social?.accounts ?? []).length === 0)}
+                        className={`px-4 py-2.5 rounded-xl text-xs font-bold disabled:opacity-40 disabled:cursor-not-allowed transition-colors ${
+                          social?.enabled
+                            ? "bg-amber-500/15 border border-amber-500/40 text-amber-300 hover:bg-amber-500/25"
+                            : "bg-secondary text-black hover:bg-secondary/90"
+                        }`}
+                      >
+                        {toggleSocialMutation.isPending ? "…" : social?.enabled ? <><Pause className="w-3.5 h-3.5 inline mr-1.5" />PAUSE AUTO-POSTING</> : <><Play className="w-3.5 h-3.5 inline mr-1.5" />START AUTO-POSTING</>}
+                      </button>
+                      <button
+                        onClick={() => postSocialMutation.mutate()}
+                        disabled={postSocialMutation.isPending || (social?.accounts ?? []).length === 0 || !social?.next || !social?.runsOnThisServer}
+                        className="px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-xs font-bold text-white hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center gap-1.5"
+                      >
+                        {postSocialMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                        {postSocialMutation.isPending ? "PUBLISHING…" : "POST NEXT POSTER"}
+                      </button>
+                      <button
+                        onClick={() => refetchSocial()}
+                        className="px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-xs font-bold text-muted-foreground hover:text-white"
+                        title="Refresh accounts and queue"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {social?.next ? (
+                    <div className="mt-6 grid lg:grid-cols-[220px_1fr] gap-5 rounded-2xl border border-secondary/25 bg-secondary/5 p-4">
+                      <div>
+                        <p className="text-[10px] font-bold tracking-widest text-secondary/70 mb-2">NEXT POSTER</p>
+                        <img
+                          src={social.next.imageUrl}
+                          alt={`${social.next.name} poster`}
+                          className="w-full aspect-[4/5] object-cover rounded-xl border border-white/10 bg-black/40"
+                          loading="lazy"
+                        />
+                        <p className="text-sm font-bold text-white mt-2 truncate">{social.next.name}</p>
+                        <p className="text-[11px] text-secondary/80 truncate">{social.next.categoryName}</p>
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-[10px] font-bold tracking-widest text-secondary/70">CAPTION PREVIEW · AUTO-GENERATED</p>
+                          <p className="text-[10px] text-muted-foreground">One caption per nominee, every connected platform</p>
+                        </div>
+                        <pre className="mt-2 whitespace-pre-wrap break-words text-xs leading-relaxed text-white/80 font-sans bg-black/35 rounded-xl border border-white/5 p-4 max-h-72 overflow-y-auto">
+                          {social.next.caption}
+                        </pre>
+                        <p className="mt-2 text-[11px] text-muted-foreground leading-relaxed">
+                          No caption typing is needed. This is built from the nominee's own name, category, USSD code and public page;
+                          it always names the person on the poster and uses the public voting-close date. YouTube uses the title as the
+                          video title and this caption as the description; Facebook uses the full caption, and TikTok gets a short title
+                          plus the full description.
+                        </p>
+                      </div>
+                    </div>
+                  ) : social?.onlyWithPosters && (social?.posterReadyCount ?? 0) === 0 ? (
+                    <div className="mt-6 rounded-2xl border border-amber-500/35 bg-amber-500/10 p-5 text-sm text-amber-100">
+                      <p className="font-bold">No nominees are marked as having an official poster yet.</p>
+                      <p className="mt-1 text-amber-100/75 leading-relaxed">
+                        Open <span className="text-white">DELETE → MANAGE NOMINEES</span> and tap{" "}
+                        <span className="text-white">NO OFFICIAL POSTER · MARK</span> on each nominee whose uploaded photo is the finished
+                        poster. They will appear here immediately. To publish every approved nominee's current photo instead, turn the
+                        poster filter off above — but only if those photos are really official posters.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="mt-6 rounded-2xl border border-emerald-500/25 bg-emerald-500/5 p-5 text-sm text-emerald-200">
+                      Every eligible nominee in the poster queue has been posted. New approvals and newly marked posters will appear here automatically.
+                    </div>
+                  )}
+
+                  {(social?.recent ?? []).length > 0 && (
+                    <div className="mt-6">
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <p className="text-[10px] font-bold tracking-widest text-muted-foreground">RECENT POSTS</p>
+                        <p className="text-[10px] text-muted-foreground">One ledger row per nominee, so nothing posts twice</p>
+                      </div>
+                      <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+                        {(social.recent as any[]).map((post: any) => {
+                          const posted = (post.platforms ?? []).filter((p: any) => p.status === "published");
+                          return (
+                            <div key={`${post.artistId}-${post.updatedAt}`} className="rounded-xl border border-white/5 bg-black/30 px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-2">
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm text-white font-semibold truncate">{post.artistName}</p>
+                                <p className="text-[11px] text-muted-foreground mt-0.5">
+                                  {post.updatedAt ? new Date(post.updatedAt).toLocaleString("en-KE", { timeZone: "Africa/Nairobi" }) : "Not published yet"}
+                                  {posted.length > 0 && ` · ${posted.length} platform${posted.length === 1 ? "" : "s"} live`}
+                                </p>
+                                {post.error && <p className="text-[11px] text-red-300/80 mt-1 line-clamp-2">{post.error}</p>}
+                              </div>
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                {SOCIAL_PLATFORM_META.map((platform) => {
+                                  const entry = (post.platforms ?? []).find((p: any) => p.platform === platform.id);
+                                  const Icon = platform.icon;
+                                  return (
+                                    <span
+                                      key={platform.id}
+                                      title={`${platform.label}: ${entry?.status ?? "not posted"}`}
+                                      className={`w-7 h-7 rounded-lg border flex items-center justify-center ${
+                                        entry?.status === "published"
+                                          ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+                                          : entry?.status === "failed"
+                                            ? "border-red-500/30 bg-red-500/10 text-red-300"
+                                            : "border-white/10 bg-white/5 text-white/30"
+                                      }`}
+                                    >
+                                      <Icon className="w-3.5 h-3.5" />
+                                    </span>
+                                  );
+                                })}
+                                <span className={`ml-1 text-[10px] font-bold px-2 py-1 rounded-lg ${
+                                  post.status === "published"
+                                    ? "bg-emerald-500/15 text-emerald-300"
+                                    : post.status === "partial" || post.status === "queued"
+                                      ? "bg-amber-500/15 text-amber-300"
+                                      : post.status === "failed"
+                                        ? "bg-red-500/15 text-red-300"
+                                        : "bg-white/5 text-white/50"
+                                }`}>
+                                  {String(post.status).toUpperCase()}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </motion.div>

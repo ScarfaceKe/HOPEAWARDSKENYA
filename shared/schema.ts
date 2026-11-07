@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, timestamp, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -132,6 +132,12 @@ export const artists = pgTable("artists", {
   name: text("name").notNull(),
   genre: text("genre").notNull(),
   imageUrl: text("image_url").notNull(),
+  /**
+   * Admin-confirmed: the image is the nominee's official campaign poster. The
+   * social queue only uses these when `social_automation.only_with_posters` is on;
+   * an ordinary profile photo must never be published as an official poster.
+   */
+  posterReady: boolean("poster_ready").notNull().default(false),
   category: text("category").notNull(),
   totalVotes: integer("total_votes").notNull().default(0),
   displayOrder: integer("display_order").notNull().default(0),
