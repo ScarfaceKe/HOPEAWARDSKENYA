@@ -5,9 +5,9 @@
 // turn it back on or leave the controls visible when the server would reject
 // the request.
 //
-// Entries are audit-only. Paid votes still arrive through MegaPay, and the
-// official tally is rebuilt from those paid `votes` rows; a manual entry never
-// creates a payment row and never changes `artists.total_votes`.
+// Entries change a nominee's ranking tally, but never the paid site-wide
+// total: that total is read from the `votes` ledger, and a manual entry never
+// creates a payment row.
 
 import { pool } from "./db";
 import { MAX_MANUAL_VOTES_PER_ADDITION } from "@shared/site";

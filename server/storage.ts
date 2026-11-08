@@ -66,6 +66,7 @@ export interface IStorage {
   updateArtistBio(id: number, bio: string): Promise<ArtistResponse>;
   getTotalVotesCast(): Promise<number>;
   getTotalRevenue(): Promise<{ paidVotes: number; revenueKes: number }>;
+  addVotesToArtist(id: number, votes: number): Promise<ArtistResponse>;
   shuffleNominees(): Promise<void>;
   saveUploadedImage(filename: string, mimeType: string, data: string): Promise<void>;
   getUploadedImage(filename: string): Promise<UploadedImage | undefined>;
@@ -330,6 +331,19 @@ export class DatabaseStorage implements IStorage {
       paidVotes: Number(result[0]?.paidVotes ?? 0),
       revenueKes: Number(result[0]?.revenueKes ?? 0),
     };
+  }
+
+  /**
+   * Ranking-only adjustment: it changes the nominee's position, but the
+   * site-wide paid total is read from the `votes` ledger and never sums this.
+   */
+  async addVotesToArtist(id: number, votes: number): Promise<ArtistResponse> {
+    const [updated] = await db.update(artists)
+      .set({ totalVotes: sql`${artists.totalVotes} + ${votes}` })
+      .where(eq(artists.id, id))
+      .returning();
+    if (!updated) throw new Error("Artist not found");
+    return updated;
   }
 
 

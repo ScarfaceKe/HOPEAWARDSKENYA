@@ -173,7 +173,7 @@ test("SOCIAL: the poster-only filter and per-nominee poster flag reject bad inpu
   assert.equal(artistFlag.status, 400);
 });
 
-test("MANUAL VOTES: the switch is admin-only, validated, and must be on before an entry is logged", async () => {
+test("MANUAL VOTES: the switch is admin-only, validated, and must be on before an addition", async () => {
   assert.equal((await get("/api/admin/manual-votes")).status, 401);
   assert.equal((await post("/api/admin/manual-votes/toggle", { enabled: true })).status, 403);
 
@@ -196,16 +196,16 @@ test("MANUAL VOTES: the switch is admin-only, validated, and must be on before a
       body: JSON.stringify({ add }),
     });
 
-  assert.equal((await addVotes(0)).status, 400, "zero is not an adjustment");
+  assert.equal((await addVotes(0)).status, 400, "zero is not an addition");
   assert.equal((await addVotes(1.5)).status, 400, "votes are whole numbers");
   assert.equal(
     (await addVotes(MAX_MANUAL_VOTES_PER_ADDITION + 1)).status,
     400,
-    "one adjustment cannot exceed the per-entry ceiling",
+    "one adjustment cannot exceed the per-addition ceiling",
   );
 
   const off = await addVotes(10);
-  assert.equal(off.status, 409, "with the switch off the request must not reach the audit/log path");
+  assert.equal(off.status, 409, "with the switch off the request must not reach the vote update");
   const offBody = (await off.json()) as { message?: string };
   assert.match(offBody.message ?? "", /turned off/i);
 });

@@ -54,7 +54,7 @@ export function parseUssdNomineeCode(raw: string): number | null {
 /** Largest number of votes the voting form accepts in one M-Pesa transaction. */
 export const MAX_VOTES_PER_TRANSACTION = 10000;
 
-/** Largest number of votes an admin may record in one audit-only manual adjustment. */
+/** Largest number of votes an admin may add in one ranking adjustment. */
 export const MAX_MANUAL_VOTES_PER_ADDITION = 100_000;
 
 /** Maximum photo size accepted with a nomination, in megabytes. */

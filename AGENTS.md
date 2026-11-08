@@ -50,14 +50,17 @@ Money and admin access are guarded in dedicated modules — change the rules the
 - `server/totp.ts` — RFC 6238 second factor for admin login, no extra dependency.
 - `server/alerts.ts` — anomaly alerts (payment, CSRF, callbacks, lockouts). Every alert is logged and
   kept for the admin **Security** tab; the last 200 are in memory only.
-- `server/manual-votes.ts` — persisted, off-by-default switch for logging manual vote adjustments. The
-  switch is enforced on the server, not just hidden in the panel. `PATCH /api/artists/:id/votes` only
-  accepts positive whole-number entries while it is on (never a deduction or overwrite), caps one entry
-  at `MAX_MANUAL_VOTES_PER_ADDITION`, and writes an audit row. **It never changes `artists.total_votes`.**
-  Official tallies are paid-only: `artists.total_votes` is rebuilt from the `votes` ledger at boot, and
-  `getTotalVotesCast()` sums paid `votes` rows. Manual adjustments appear only in the audit log and are
-  never counted in public totals, leaderboards or the admin total. Turning the switch off hides the
-  controls and makes the route answer 409.
+- `server/manual-votes.ts` — persisted, off-by-default switch for manual vote adjustments. The switch is
+  enforced on the server, not just hidden in the panel. `PATCH /api/artists/:id/votes` only accepts
+  positive whole-number entries while it is on (never a deduction or overwrite), caps one entry at
+  `MAX_MANUAL_VOTES_PER_ADDITION`, writes an audit row, and adds to the nominee's **ranking tally**
+  (`artists.total_votes`) so the adjustment can change their position.
+
+  **The site-wide total is paid-only.** `getTotalVotesCast()` sums paid `votes` rows, never
+  `artists.total_votes`, so manual adjustments cannot inflate the public aggregate total or revenue
+  figures. The admin Vote Manager's headline is `paidVotes` from `/api/admin/stats`; individual nominee
+  rows show ranking votes, which may include manual adjustments. Never present the sum of nominee ranking
+  tallies as money-backed votes. Turning the switch off hides the controls and makes the route answer 409.
 - `admin_audit_log` — one row per admin mutation (what, when, from which IP), written via
   `audit()` in `server/routes.ts`.
 
