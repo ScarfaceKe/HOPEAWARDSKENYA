@@ -7,6 +7,17 @@ import { useVotingStatus } from "@/hooks/use-voting-status";
 import logoImg from "/images/logo.png";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { AWARDS_DATE } from "@shared/dates";
+
+/**
+ * "12 December 2026" -> the awards-night card shows the day big, month/year small.
+ * Derived from AWARDS_DATE so the card cannot contradict the rest of the site; if
+ * the constant ever gains a suffix ("12th") the card simply shows that instead.
+ */
+const [awardsDayPart, awardsMonthPart, awardsYearPart] = AWARDS_DATE.split(" ");
+const AwardsDay = awardsDayPart ?? AWARDS_DATE;
+const AwardsMonthYear =
+  awardsMonthPart && awardsYearPart ? `${awardsMonthPart} ${awardsYearPart}` : "";
 
 /* ── Section eyebrow ─────────────────────────────────────────── */
 function Eyebrow({ children, tone = "coral" }: { children: React.ReactNode; tone?: "coral" | "jade" | "rose" }) {
@@ -32,7 +43,7 @@ function NominationShareBanner() {
 
   const waMessage = encodeURIComponent(
     votingLive
-      ? `🏆 *HOPE AWARDS KENYA 2026* — voting is LIVE!\n\n1 vote = 10 KES, paid with M-Pesa.\n\n👉 Vote for your favourite here:\n${voteUrl}\n\nVoting closes 6th December 2026. Awards night: 12 December 2026.\n\n🌟 Share with every fan you know!`
+      ? `🏆 *HOPE AWARDS KENYA 2026* — voting is LIVE!\n\n1 vote = 10 KES, paid with M-Pesa.\n\n👉 Vote for your favourite here:\n${voteUrl}\n\nVoting closes 8th December 2026. Awards night: 12 December 2026.\n\n🌟 Share with every fan you know!`
       : `🎵 *HOPE AWARDS KENYA 2026* 🏆\n\nAre you an Artist, DJ or MC? Now is your chance!\n\n👉 Nominate yourself here:\n${nominationUrl}\n\nVoting opens 25th October 2026. Awards night: 12 December 2026.\n\n🌟 Share with every artist you know!`
   );
   const waLink = `https://wa.me/?text=${waMessage}`;
@@ -56,7 +67,7 @@ function NominationShareBanner() {
               </h2>
               <p className="text-muted-foreground text-lg leading-relaxed max-w-xl mx-auto lg:mx-0">
                 {votingLive
-                  ? "The vote is open. Pick your favourite artist, DJ or MC, pay with M-Pesa and put them ahead — 1 vote is 10 KES. Voting closes midnight, 6 December."
+                  ? "The vote is open. Pick your favourite artist, DJ or MC, pay with M-Pesa and put them ahead — 1 vote is 10 KES. Voting closes midnight, 8 December."
                   : "Are you an artist, DJ or MC? Submit your own nomination now — voting opens on 25 October. Share this link with every artist you know."}
               </p>
             </div>
@@ -235,7 +246,7 @@ export default function Home() {
     { icon: Trophy,       label: "Categories",     value: "60+" },
     { icon: Star,         label: "Nominees live",  value: capacityData ? `${activeCategories.reduce((a: number, c: any) => a + (categoryCounts[c.id] ?? 0), 0)}` : "—" },
     { icon: Vote,         label: "Cost per vote",  value: "10 KES" },
-    { icon: CalendarDays, label: "Voting closes",  value: "6 Dec" },
+    { icon: CalendarDays, label: "Voting closes",  value: "8 Dec" },
   ];
 
   return (
@@ -370,7 +381,7 @@ export default function Home() {
                   {phase === "pre" ? "Voting opens" : "Voting closes"}
                 </p>
                 <p className="font-display text-lg text-foreground leading-tight">
-                  {phase === "pre" ? "25 October" : "6 December"}
+                  {phase === "pre" ? "25 October" : "8 December"}
                 </p>
               </div>
               <div className="absolute -right-1 sm:-right-4 top-6 glass-green rounded-2xl px-4 py-3 shadow-xl shadow-black/40">
@@ -423,17 +434,57 @@ export default function Home() {
                   Awards night is coming
                 </h2>
                 <p className="text-muted-foreground text-lg mt-4 max-w-xl mx-auto lg:mx-0">
-                  Winners are crowned live — the venue and the exact date will be announced here first.
+                  Winners are crowned live on {AWARDS_DATE} — the venue will be announced here first.
                 </p>
                 <div className="mt-6 flex flex-wrap items-center justify-center lg:justify-start gap-x-6 gap-y-3 text-foreground/85 font-semibold">
                   <span className="inline-flex items-center gap-2"><MapPin className="w-5 h-5 text-primary" /> Venue to be announced</span>
                   <span className="inline-flex items-center gap-2"><CalendarDays className="w-5 h-5 text-accent" /> Doors 4:00 PM</span>
                 </div>
               </div>
-              <div className="rounded-[1.75rem] glass-strong px-6 py-7 text-center">
-                <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-primary">Voting opens</p>
-                <p className="font-display text-6xl text-foreground leading-none my-2">25</p>
-                <p className="text-sm font-bold uppercase tracking-[0.2em] text-muted-foreground">October 2026 · Midnight</p>
+              {/* Awards-night card: the date is known, so this shows the trophy and
+                  12 December rather than repeating the (already passed) open date. */}
+              <div className="relative rounded-[1.75rem] glass-strong px-6 py-7 text-center overflow-hidden">
+                {/* Warm halo behind the trophy */}
+                <div
+                  aria-hidden="true"
+                  className="pointer-events-none absolute left-1/2 top-8 -translate-x-1/2 h-32 w-32 rounded-full blur-2xl"
+                  style={{ background: "radial-gradient(circle, rgba(240,100,66,0.55), rgba(240,100,66,0) 70%)" }}
+                />
+                <p className="relative text-[10px] font-bold uppercase tracking-[0.22em] text-primary">Awards night</p>
+
+                <svg
+                  role="img"
+                  aria-label="Golden trophy"
+                  viewBox="0 0 96 96"
+                  className="relative mx-auto mt-3 h-24 w-24 drop-shadow-[0_6px_18px_rgba(240,100,66,0.35)]"
+                >
+                  <defs>
+                    <linearGradient id="trophyGold" x1="0" y1="0" x2="1" y2="1">
+                      <stop offset="0%" stopColor="#FFE9A8" />
+                      <stop offset="45%" stopColor="#F2B23E" />
+                      <stop offset="100%" stopColor="#B4761C" />
+                    </linearGradient>
+                    <linearGradient id="trophyLight" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#FFF6DA" stopOpacity="0.95" />
+                      <stop offset="100%" stopColor="#FFF6DA" stopOpacity="0" />
+                    </linearGradient>
+                  </defs>
+                  {/* handles */}
+                  <path d="M26 22h-8a10 10 0 0 0 10 10" fill="none" stroke="url(#trophyGold)" strokeWidth="4" strokeLinecap="round" />
+                  <path d="M70 22h8a10 10 0 0 1-10 10" fill="none" stroke="url(#trophyGold)" strokeWidth="4" strokeLinecap="round" />
+                  {/* cup */}
+                  <path d="M26 14h44v16a22 22 0 0 1-44 0V14z" fill="url(#trophyGold)" />
+                  <path d="M33 17h10v26a14 14 0 0 1-10-13V17z" fill="url(#trophyLight)" />
+                  {/* stem and base */}
+                  <rect x="43" y="50" width="10" height="14" rx="3" fill="url(#trophyGold)" />
+                  <rect x="32" y="63" width="32" height="7" rx="3.5" fill="url(#trophyGold)" />
+                  <rect x="27" y="72" width="42" height="9" rx="4.5" fill="url(#trophyGold)" />
+                  {/* star on the cup */}
+                  <path d="M48 22l3.2 6.5 7.2 1-5.2 5 1.3 7.1L48 38.3l-6.5 3.3 1.3-7.1-5.2-5 7.2-1L48 22z" fill="#7A4A0B" fillOpacity="0.35" />
+                </svg>
+
+                <p className="relative font-display text-6xl text-foreground leading-none mt-1 mb-2">{AwardsDay}</p>
+                <p className="relative text-sm font-bold uppercase tracking-[0.2em] text-muted-foreground">{AwardsMonthYear}</p>
               </div>
             </div>
           </div>
@@ -591,7 +642,7 @@ export default function Home() {
                 Kenya decides. Ten shillings at a time.
               </h2>
               <p className="text-muted-foreground text-lg max-w-2xl mx-auto mb-8">
-                Support the artists who carry Kenyan music, media and culture. Voting closes on 6th December 2026.
+                Support the artists who carry Kenyan music, media and culture. Voting closes on 8th December 2026.
               </p>
               <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
                 <button

@@ -16,9 +16,10 @@ Standing instructions for anyone (human or AI agent) working in this repository.
 ## Schedule (single source of truth: `shared/dates.ts`)
 
 - Voting opens **2026-10-25 00:00 EAT** (`VOTING_START`).
-- Publicly announced close is **midnight, 2026-12-06** (`VOTING_PUBLIC_END`) — this is what every
-  client-facing surface, meta tag, and API response may show.
-- Enforced server close is **2026-12-06 00:15 EAT** (`VOTING_END`) — a 15-minute management-only
+- Publicly announced close is **midnight, 2026-12-08** (`VOTING_PUBLIC_END`) — this is what every
+  client-facing surface, meta tag, and API response may show. (Extended by two days from 6 Dec at the
+  owner's request on 2026-11-17.)
+- Enforced server close is **2026-12-08 00:15 EAT** (`VOTING_END`) — a 15-minute management-only
   buffer. Never expose `VOTING_END` or `00:15` in UI, meta tags, or API payloads.
 
 ## Styling

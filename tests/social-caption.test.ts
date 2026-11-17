@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { VOTING_CLOSE_TEXT } from "../shared/dates";
+import { VOTING_CLOSE_TEXT, VOTING_END } from "../shared/dates";
 import { buildSocialCaption, socialMediaUrl } from "../shared/social-caption";
 
 const NOW = new Date("2026-11-05T12:00:00+03:00").getTime();
@@ -34,7 +34,9 @@ test("social captions never expose the enforced 00:15 close buffer", () => {
 });
 
 test("closed voting gets a graceful caption instead of asking for votes", () => {
-  const afterClose = new Date("2026-12-07T12:00:00+03:00").getTime();
+  // Derived from the schedule, not a hard-coded day: a hard-coded "after close"
+  // date silently stops testing the closed state the moment the window moves.
+  const afterClose = VOTING_END + 24 * 60 * 60 * 1000;
   const { caption } = buildSocialCaption(
     { id: 9, name: "Closed Nominee", categoryName: "Best Artist" },
     afterClose,

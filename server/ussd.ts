@@ -422,7 +422,7 @@ export async function handleUssd(
       }
       if (pressed === "2") {
         sessions.delete(sessionId);
-        return end("Cancelled. No payment was\nrequested. Dial again\nany time before 6 Dec.");
+        return end("Cancelled. No payment was\nrequested. Dial again\nany time before 8 Dec.");
       }
       if (pressed !== "1") {
         return confirmScreen(artist.name, artist.categoryName, votes, votes * VOTE_PRICE_KES);

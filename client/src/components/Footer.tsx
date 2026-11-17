@@ -158,7 +158,7 @@ export function Footer() {
                     {votingPre ? "Voting Opens" : "Voting Closes"}
                   </p>
                   <p className="text-sm text-white font-semibold">
-                    {votingPre ? "25th October 2026 · Midnight EAT" : "6th December 2026 · Midnight EAT"}
+                    {votingPre ? "25th October 2026 · Midnight EAT" : "8th December 2026 · Midnight EAT"}
                   </p>
                 </div>
               </li>
@@ -194,7 +194,7 @@ export function Footer() {
                 It's voting time — but you can still nominate.
               </p>
               <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
-                Voting is live until midnight, 6 December. Nominations stay open alongside it: submit yourself or an artist, our team reviews every entry, and once approved fans can vote for them straight away.
+                Voting is live until midnight, 8 December. Nominations stay open alongside it: submit yourself or an artist, our team reviews every entry, and once approved fans can vote for them straight away.
               </p>
             </div>
             <Link

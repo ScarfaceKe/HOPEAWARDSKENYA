@@ -77,13 +77,13 @@ function Timeline({ phase }: { phase: "pre" | "open" }) {
     ? [
         { label: "Entries Open",     date: "Now → 24 Oct",        done: false,           active: true  },
         { label: "Voting Opens",     date: "25 Oct · Midnight",   done: false,           active: false },
-        { label: "Voting Closes",    date: "6 Dec · Midnight",    done: false,           active: false },
+        { label: "Voting Closes",    date: "8 Dec · Midnight",    done: false,           active: false },
         { label: "Awards Night",     date: "12 Dec 2026",         done: false,           active: false },
       ]
     : [
         { label: "Voting Opens",     date: "25 Oct · Midnight",   done: true,            active: false },
-        { label: "Voting Now Live",  date: "Until 6 Dec · Midnt", done: false,           active: true  },
-        { label: "Voting Closes",    date: "6 Dec · Midnight",    done: false,           active: false },
+        { label: "Voting Now Live",  date: "Until 8 Dec · Midnt", done: false,           active: true  },
+        { label: "Voting Closes",    date: "8 Dec · Midnight",    done: false,           active: false },
         { label: "Awards Night",     date: "12 Dec 2026",         done: false,           active: false },
       ];
 
@@ -206,7 +206,7 @@ export function Countdown() {
                   <Zap className="w-4 h-4 text-rose-400 animate-pulse" />
                 </div>
                 <p className="text-[10px] text-rose-500/50 font-semibold tracking-widest uppercase">
-                  6th December 2026 · 12:00 AM (Midnight) EAT
+                  8th December 2026 · 12:00 AM (Midnight) EAT
                 </p>
               </>
             )}

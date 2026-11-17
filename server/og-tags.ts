@@ -17,7 +17,7 @@ function currentPhase(): VotingPhase {
 const INFO_PAGES: Record<string, { title: string; description: string; imageAlt: string }> = {
   "/about": {
     title: "About Hope Awards Kenya 2026 — 3rd Edition",
-    description: `Who Hope Awards Kenya is, and how the 3rd Edition works: ${CATEGORIES.length} fan-voted categories across music, media, performance, production and regional culture. Nominations are free; voting runs 25th October to 6th December 2026 at 1 Vote = 10 KES.`,
+    description: `Who Hope Awards Kenya is, and how the 3rd Edition works: ${CATEGORIES.length} fan-voted categories across music, media, performance, production and regional culture. Nominations are free; voting runs 25th October to 8th December 2026 at 1 Vote = 10 KES.`,
     imageAlt: "Hope Awards Kenya 2026 — 3rd Edition",
   },
   "/terms": {

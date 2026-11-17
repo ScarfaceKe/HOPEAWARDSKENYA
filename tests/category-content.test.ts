@@ -26,7 +26,7 @@ test("the summary states the facts the rest of the site states", () => {
   const summary = categorySummary("male-artist");
   assert.ok(summary.includes(`KES ${VOTE_PRICE_KES}`));
   assert.ok(summary.includes(String(CATEGORY_CAP)));
-  assert.ok(summary.includes("6th December 2026"), "uses the publicly announced close");
+  assert.ok(summary.includes("8th December 2026"), "uses the publicly announced close");
   assert.ok(summary.includes("25th October 2026"), "uses the published opening");
   assert.equal(summary.includes("00:15"), false, "must never leak the enforced close buffer");
 });
