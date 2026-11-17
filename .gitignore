@@ -8,6 +8,10 @@ blob-report
 server/public
 vite.config.ts.*
 *.tar.gz
+# Database dumps must never be committed — they contain voters' phone numbers.
+backups/
+*.dump
+*.sql.gz
 .env.local
 .env
 .env.*

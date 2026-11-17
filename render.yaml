@@ -13,12 +13,16 @@ services:
   - type: web
     name: hopeawardskenya
     runtime: node
-    # Free instances sleep after idle and take ~1 minute to wake. A payment
-    # callback that arrives while asleep can time out, so upgrade this to
-    # `starter` before a live voting window.
-    plan: free
+    # Must stay always-on during voting: a sleeping instance would miss payment
+    # callbacks. Declared here (not only in the dashboard) so a blueprint sync
+    # cannot quietly move the live payment rail back to free.
+    plan: starter
     buildCommand: npm install && npm run build
     startCommand: npm start
+    # Static shell only: Render's probe must never be a database query. Point any
+    # external uptime monitor at /api/health/live for the same reason — Neon
+    # bills compute time, and a poll shorter than five minutes never lets it
+    # scale to zero.
     healthCheckPath: /
     envVars:
       - key: NODE_VERSION
@@ -43,3 +47,7 @@ services:
       # prompted for at create time and never stored in this file.
       - key: DATABASE_URL
         sync: false
+      # Optional. Connections kept by this one Express process. Five is ample for
+      # short queries and keeps the idle footprint on the database small.
+      - key: DB_POOL_MAX
+        value: "5"

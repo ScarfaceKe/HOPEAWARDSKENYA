@@ -6,6 +6,12 @@ import multer from "multer";
 import path from "path";
 import { pool } from "./db";
 import { storage, CATEGORY_CAP, VOTING_START, VOTING_END } from "./storage";
+import {
+  paymentRecoveryJob,
+  voteReconcileJob,
+  maintenanceJob,
+  type JobResult,
+} from "./job-runner";
 import { apiCache, imgCache, TTL_API, TTL_IMG } from "./cache";
 import { api } from "@shared/routes";
 import { insertRequestSchema, CATEGORIES, type ArtistResponse, type AwardCategoryOption, type PendingPayment, type NomineeNotification } from "@shared/schema";
@@ -51,6 +57,7 @@ import {
   getSocialAccounts,
   getSocialStatus,
   runSocialQueue,
+  runSocialQueueOnce,
   setSocialAutomationEnabled,
   setSocialOnlyWithPosters,
   socialConnectUrl,
@@ -195,7 +202,10 @@ const uploadPublic = multer({
 
 const MAX_UPLOAD_TABLE_ROWS = 500;
 const ORPHAN_TTL_MS = 2 * 60 * 60 * 1000;
-const ORPHAN_CLEANUP_INTERVAL_MS = 30 * 60 * 1000;
+// Cleanup used to run every 30 minutes. It is a DELETE over three tables and it
+// has nothing to do most of the time, so it now shares the hourly maintenance
+// sweep and only actually runs every six hours.
+const ORPHAN_CLEANUP_EVERY_MS = 6 * 60 * 60 * 1000;
 
 declare module "express-session" {
   interface SessionData {
@@ -492,9 +502,17 @@ export async function registerRoutes(
   });
 
   app.get("/api/stats/total-votes", async (_req, res) => {
-    const total = await storage.getTotalVotesCast();
+    // Public aggregate over the whole ledger. Cached in-process so a burst of
+    // visitors (and the live-tally rail) cannot re-run the SUM per request.
+    const cached = apiCache.get<{ total: number }>("stats:total-votes");
+    if (cached) {
+      res.set("Cache-Control", "public, max-age=30");
+      return res.json(cached);
+    }
+    const payload = { total: await storage.getTotalVotesCast() };
+    apiCache.set("stats:total-votes", payload, TTL_API);
     res.set("Cache-Control", "public, max-age=30");
-    res.json({ total });
+    res.json(payload);
   });
 
   app.get("/api/admin/stats", requireAdmin, async (_req, res) => {
@@ -972,8 +990,8 @@ export async function registerRoutes(
     }
   };
 
-  runOrphanCleanup();
-  setInterval(runOrphanCleanup, ORPHAN_CLEANUP_INTERVAL_MS).unref();
+  // Driven by the hourly maintenance sweep (see the background section at the
+  // bottom of this file): one wake-up an hour instead of one every half hour.
 
   app.post("/api/upload-token", (req: Request, res: Response) => {
     const ip = req.ip || req.socket.remoteAddress || "unknown";
@@ -1024,15 +1042,37 @@ export async function registerRoutes(
   // without this route `/api/health` returns 200 HTML even when Postgres is
   // gone. 200 = app + database reachable, 503 = degraded. Deliberately exposes
   // no timing information about the voting window.
-  app.get("/api/health", noCache, async (_req, res) => {
+  //
+  // The database probe is cached for a minute. A monitor hitting this route
+  // every 30 seconds used to run a query every 30 seconds, which on Neon keeps
+  // the compute awake for the whole month; a one-minute-old answer is still a
+  // truthful "the database answered" — use /api/health/live for a pure
+  // process-level check that never touches Postgres.
+  const HEALTH_PROBE_TTL_MS = 60_000;
+  let healthProbe: { at: number; ok: boolean; categories: number; latencyMs: number } | null = null;
+
+  async function probeDatabase() {
+    if (healthProbe && Date.now() - healthProbe.at < HEALTH_PROBE_TTL_MS) return healthProbe;
     const startedAt = Date.now();
     try {
-      const categories = await storage.listCategories();
+      const rows = await storage.listCategories();
+      healthProbe = { at: Date.now(), ok: true, categories: rows.length, latencyMs: Date.now() - startedAt };
+    } catch (err) {
+      // Never cache a failure: the next check must actually try again.
+      healthProbe = null;
+      throw err;
+    }
+    return healthProbe;
+  }
+
+  app.get("/api/health", noCache, async (_req, res) => {
+    try {
+      const probe = await probeDatabase();
       res.status(200).json({
         status: "ok",
         database: "ok",
-        categories: categories.length,
-        dbLatencyMs: Date.now() - startedAt,
+        categories: probe.categories,
+        dbLatencyMs: probe.latencyMs,
         uptimeSeconds: Math.round(process.uptime()),
       });
     } catch (err) {
@@ -1043,6 +1083,15 @@ export async function registerRoutes(
         uptimeSeconds: Math.round(process.uptime()),
       });
     }
+  });
+
+  /**
+   * Process-only liveness for uptime monitors and Render's health check. It can
+   * never fail because Postgres is busy or asleep, and costs the database
+   * nothing. Point external monitors here, not at /api/health.
+   */
+  app.get("/api/health/live", noCache, (_req, res) => {
+    res.status(200).json({ status: "ok", uptimeSeconds: Math.round(process.uptime()) });
   });
 
   app.get("/api/payment-config", (_req, res) => {
@@ -1071,6 +1120,9 @@ export async function registerRoutes(
     // The prompt has been answered, so this number may start another payment.
     if (pending.voterPhone) voteVelocity.release(pending.voterPhone);
     apiCache.clear();
+    // A reversal can land minutes after the vote was credited. One early
+    // re-check keeps that window short without a permanent three-minute poll.
+    voteReconcileJob.wake(60_000);
     const artist = await storage.getArtist(pending.artistId);
     console.log(
       `[VOTE CREDITED] source=${source}, ref=${pending.reference}, artist=${pending.artistId}, votes=${pending.votesAdded}, amount=${pending.amountKes}KES, total=${artist?.totalVotes ?? "?"}`,
@@ -2566,13 +2618,11 @@ export async function registerRoutes(
 
   /** The last two weeks of credited votes, so a reversal can be undone by hand. */
   app.get("/api/admin/recent-votes", requireAdmin, noCache, async (_req, res) => {
-    const recent = await storage.getVotesSince(14 * 24 * 60 * 60 * 1000);
+    // Forty rows is all the panel shows: ask the database for forty (newest
+    // first, indexed) instead of loading two weeks of the ledger on every poll.
+    const recent = await storage.getVotesSince(14 * 24 * 60 * 60 * 1000, 40);
     const artistsById = new Map((await storage.getArtists()).map((a) => [a.id, a]));
-    const rows = recent
-      .slice()
-      .sort((a, b) => new Date(b.createdAt!).getTime() - new Date(a.createdAt!).getTime())
-      .slice(0, 40)
-      .map((vote) => ({
+    const rows = recent.map((vote) => ({
         reference: vote.paymentReference,
         artistId: vote.artistId,
         artistName: artistsById.get(vote.artistId)?.name ?? `Artist #${vote.artistId}`,
@@ -2614,77 +2664,155 @@ export async function registerRoutes(
   });
 
   // ─── Background recovery: catch abandoned payments ────────────────────────
-  // Runs 1 minute after startup, then every minute.
   //
   // A callback is a convenience, never the source of truth. If MegaPay's webhook
   // is refused (they start sending from an address the allowlist does not know),
   // lost, or late, this pass asks the gateway about the order itself and credits
-  // the votes anyway. The one-minute cadence is what stops a refused callback
-  // from costing a fan ten minutes of "where are my votes?".
+  // the votes anyway.
+  //
+  // The cadence is ADAPTIVE (server/job-runner.ts), not a fixed minute: starting
+  // a payment wakes this loop and it re-checks every minute until that order is
+  // credited or abandoned; with nothing open it is dormant and runs nothing at
+  // all. A fixed one-minute poll is what kept a Neon compute permanently awake
+  // (a query every minute never lets the 5-minute scale-to-zero timer fire), so
+  // the safety net below runs hourly instead and everything in between is driven
+  // by real orders.
   const RECOVERY_MIN_AGE_MS = 60_000;
   /** A deleted order can no longer be credited, so "failed" is only final here. */
   const FAILED_ORDER_RETENTION_MS = 5 * 60_000;
+  /** Fresh orders are checked by the fast loop; older ones by the hourly sweep. */
+  const RECOVERY_ACTIVE_WINDOW_MS = 2 * 60 * 60_000;
   /** Bounds the gateway calls one pass can make, however many orders are open. */
-  const RECOVERY_BATCH = 40;
+  const RECOVERY_BATCH = 25;
+  const STALE_RECOVERY_BATCH = 25;
 
-  async function recoverPendingPayments() {
-    const megapayApiKey = process.env.MEGAPAY_API_KEY;
-    if (!megapayApiKey) return;
+  /**
+   * Per-order backoff for the gateway lookup. A prompt nobody answers must not
+   * be asked about 120 times; the first checks stay quick (a real payment is
+   * credited within a minute), later ones taper to once every five minutes.
+   */
+  const recoveryAttempts = new Map<string, { count: number; lastAt: number }>();
+  /** The fast loop and the hourly sweep can meet; only one pass at a time. */
+  let recoveryPassRunning = false;
+
+  function recoveryGateOpen(reference: string, now: number): boolean {
+    const seen = recoveryAttempts.get(reference);
+    if (!seen) return true;
+    const backoff = Math.min(5 * 60_000, 30_000 * 2 ** Math.min(seen.count - 1, 4));
+    return now - seen.lastAt >= backoff;
+  }
+
+  /**
+   * Asks MegaPay about one bounded page of open orders and credits whatever
+   * actually settled. This is the only path that turns a lost callback into
+   * votes — it is never disabled, only paced.
+   */
+  async function runPendingRecovery(opts: {
+    olderThanMs: number;
+    newerThanMs?: number;
+    limit: number;
+  }): Promise<{ open: number; checked: number }> {
+    if (!process.env.MEGAPAY_API_KEY) return { open: 0, checked: 0 };
+    if (recoveryPassRunning) return { open: 0, checked: 0 };
+    recoveryPassRunning = true;
+
     try {
-      // Oldest first: a queue, not a stack. With N orders open every one is
-      // revisited every ceil(N / RECOVERY_BATCH) minutes, so a busy night
-      // delays a fresh order by a pass instead of starving an old one forever.
-      const pending = (await storage.getOldPendingPayments(RECOVERY_MIN_AGE_MS))
-        .sort(
-          (a, b) =>
-            new Date(a.createdAt ?? 0).getTime() - new Date(b.createdAt ?? 0).getTime(),
-        )
-        .slice(0, RECOVERY_BATCH);
-      if (pending.length === 0) return;
-      console.log(`[RECOVERY] Checking ${pending.length} pending payment(s)...`);
-      for (const p of pending) {
-        try {
-          const existing = await storage.getVoteByReference(p.reference);
-          if (existing) {
-            await storage.deletePendingPayment(p.reference);
-            continue;
-          }
+      // Oldest first (a queue, not a stack), one indexed page instead of the
+      // whole table. The optional age window stops a long tail of abandoned
+      // orders from crowding out fresh ones — those are handled by the hourly
+      // sweep.
+      const pending = await storage.listPendingPaymentsForRecovery(opts);
+      if (pending.length === 0) return { open: 0, checked: 0 };
 
-          // A fan who paid and closed the tab must still get their votes: ask the
-          // gateway directly rather than waiting for a callback that was lost.
-          const gateway = await fetchGatewayStatus({
-            reference: p.reference,
-            gatewayRequestId: p.gatewayRequestId ?? null,
-            amountKes: p.amountKes,
-          });
-          if (gateway?.failed) {
-            // Safaricom can report a prompt failed while the handset is still
-            // processing it. Deleting the order would make a later real payment
-            // uncashable, so it stays until it is old enough to be abandoned.
-            const age = Date.now() - new Date(p.createdAt ?? 0).getTime();
-            if (age < FAILED_ORDER_RETENTION_MS) continue;
-            await storage.deletePendingPayment(p.reference).catch(() => {});
-            console.log(`[RECOVERY] Cleared a failed order: ref=${p.reference}`);
-            continue;
-          }
-          if (gateway?.paid && !gateway.amountMismatch && Date.now() <= VOTING_END) {
-            const credited = await creditPendingOrder(p, "background-reconcile");
-            console.log(
-              `[RECOVERY] Credited a paid order whose callback never arrived: ref=${p.reference}, votes=${credited.vote.votesAdded}`,
-            );
-            continue;
-          }
-
-          console.log(
-            `[RECOVERY] Old pending payment: ref=${p.reference}, artist=${p.artistId}, gateway=${gateway?.paid ? "paid-mismatch" : "unconfirmed"}, created=${p.createdAt}`,
-          );
-        } catch (err) {
-          console.error(`[RECOVERY] Error processing pending payment ${p.reference}:`, err);
-        }
-      }
-    } catch (err) {
-      console.error("[RECOVERY] Background recovery error:", err);
+      return await checkPendingPage(pending);
+    } finally {
+      recoveryPassRunning = false;
     }
+  }
+
+  /** The actual per-order work of one recovery page. */
+  async function checkPendingPage(
+    pending: PendingPayment[],
+  ): Promise<{ open: number; checked: number }> {
+    let checked = 0;
+    for (const p of pending) {
+      const now = Date.now();
+      if (!recoveryGateOpen(p.reference, now)) continue;
+      recoveryAttempts.set(p.reference, {
+        count: (recoveryAttempts.get(p.reference)?.count ?? 0) + 1,
+        lastAt: now,
+      });
+      checked += 1;
+
+      try {
+        const existing = await storage.getVoteByReference(p.reference);
+        if (existing) {
+          // Credited by a callback between passes; the order row is just litter.
+          await storage.deletePendingPayment(p.reference).catch(() => {});
+          recoveryAttempts.delete(p.reference);
+          continue;
+        }
+
+        // A fan who paid and closed the tab must still get their votes: ask the
+        // gateway directly rather than waiting for a callback that was lost.
+        const gateway = await fetchGatewayStatus({
+          reference: p.reference,
+          gatewayRequestId: p.gatewayRequestId ?? null,
+          amountKes: p.amountKes,
+        });
+
+        if (gateway?.failed) {
+          // Safaricom can report a prompt failed while the handset is still
+          // processing it. Deleting the order then would make a later real
+          // payment uncashable, so "failed" is only final after five minutes.
+          const age = Date.now() - new Date(p.createdAt ?? 0).getTime();
+          if (age < FAILED_ORDER_RETENTION_MS) continue;
+          await storage.deletePendingPayment(p.reference).catch(() => {});
+          recoveryAttempts.delete(p.reference);
+          console.log(`[RECOVERY] Cleared a failed order: ref=${p.reference}`);
+          continue;
+        }
+
+        if (gateway?.paid && !gateway.amountMismatch && Date.now() <= VOTING_END) {
+          const credited = await creditPendingOrder(p, "background-reconcile");
+          recoveryAttempts.delete(p.reference);
+          console.log(
+            `[RECOVERY] Credited a paid order whose callback never arrived: ref=${p.reference}, votes=${credited.vote.votesAdded}`,
+          );
+          continue;
+        }
+
+        console.log(
+          `[RECOVERY] Old pending payment: ref=${p.reference}, artist=${p.artistId}, gateway=${gateway?.paid ? "paid-mismatch" : "unconfirmed"}, created=${p.createdAt}`,
+        );
+      } catch (err) {
+        // One bad order must not stop the pass; the pass itself reports whether
+        // more work remains.
+        console.error(`[RECOVERY] Error processing pending payment ${p.reference}:`, err);
+      }
+    }
+
+    if (recoveryAttempts.size > 2000) {
+      const cutoff = Date.now() - 24 * 60 * 60_000;
+      for (const [reference, seen] of recoveryAttempts) {
+        if (seen.lastAt < cutoff) recoveryAttempts.delete(reference);
+      }
+    }
+
+    if (checked > 0) console.log(`[RECOVERY] Checked ${checked} of ${pending.length} open order(s) with MegaPay.`);
+    return { open: pending.length, checked };
+  }
+
+  /** Fast loop: fresh orders only. Woken when a payment is started. */
+  async function recoverPendingPayments(): Promise<JobResult> {
+    const { open } = await runPendingRecovery({
+      olderThanMs: RECOVERY_MIN_AGE_MS,
+      newerThanMs: RECOVERY_ACTIVE_WINDOW_MS,
+      limit: RECOVERY_BATCH,
+    });
+    // Keep the one-minute cadence while any order is still open; go dormant once
+    // the queue is empty (the hourly sweep is the safety net).
+    return { work: open > 0 };
   }
 
   // ─── Background: undo votes whose payments were reversed ─────────────────
@@ -2697,13 +2825,28 @@ export async function registerRoutes(
   // "paid" once and never looked again, so a reversal that landed after that
   // answer — the reported 10 KES case, reversed a minute after "vote added" —
   // was invisible unless MegaPay happened to send a callback.
+  //
+  // Only runs while votes are actually landing (creditPendingOrder wakes it), so
+  // a quiet night does not poll the ledger for an hour that has no votes in it.
+  const REVERIFY_WINDOW_MS = 60 * 60 * 1000;
   const REVERIFY_COOLDOWN_MS = 10 * 60 * 1000;
+  /** Bounded so one pass cannot fan out into hundreds of gateway calls. */
+  const REVERIFY_BATCH = 100;
   const lastVerifiedAt = new Map<string, number>();
-  async function reconcileRecentVotes() {
-    const apiKey = process.env.MEGAPAY_API_KEY;
-    if (!apiKey) return;
+  let reconcileRunning = false;
+
+  async function reconcileRecentVotes(): Promise<JobResult> {
+    if (!process.env.MEGAPAY_API_KEY) return { work: false };
+    // A maintenance sweep can land on top of the fast loop; the work is
+    // idempotent, but there is no reason to ask the gateway twice.
+    if (reconcileRunning) return { work: true };
+    reconcileRunning = true;
     try {
-      const recent = await storage.getVotesSince(60 * 60 * 1000);
+      const recent = await storage.listVotesNeedingReverification({
+        withinMs: REVERIFY_WINDOW_MS,
+        limit: REVERIFY_BATCH,
+      });
+
       for (const vote of recent) {
         if (!vote.gatewayRequestId) continue;
         const now = Date.now();
@@ -2733,18 +2876,80 @@ export async function registerRoutes(
           lastVerifiedAt.set(vote.paymentReference, now);
         }
       }
-      if (lastVerifiedAt.size > 5000) lastVerifiedAt.clear();
-    } catch (err) {
-      console.error("[RECONCILE] Recent-vote reconciliation failed:", err);
+
+      // Prune only what has aged out of the window instead of clearing the whole
+      // map (a full clear let every old vote be re-checked immediately).
+      const cutoff = Date.now() - REVERIFY_WINDOW_MS;
+      if (lastVerifiedAt.size > 500) {
+        for (const [reference, at] of lastVerifiedAt) {
+          if (at < cutoff) lastVerifiedAt.delete(reference);
+        }
+      }
+
+      return { work: recent.length > 0 };
+    } finally {
+      reconcileRunning = false;
     }
   }
 
-  setTimeout(() => {
-    recoverPendingPayments();
-    setInterval(recoverPendingPayments, 60 * 1000).unref();
-    reconcileRecentVotes();
-    setInterval(reconcileRecentVotes, 3 * 60 * 1000).unref();
-  }, 60 * 1000).unref();
+  // ─── The one hourly sweep ────────────────────────────────────────────────
+  // Everything that used to have its own timer now shares a single wake-up, so
+  // the database sees one short burst of work an hour instead of a query every
+  // minute / three minutes / five minutes / fifteen minutes. Nothing here is
+  // time-critical: the payment fast loop above handles live orders, and social
+  // posts are four hours apart.
+  let lastOrphanCleanupAt = 0;
+
+  async function runMaintenanceSweep(): Promise<void> {
+    // 1. Payment safety net: every open order, including ones an earlier process
+    //    created and this one never saw. Lost callbacks are still recovered.
+    try {
+      const { open, checked } = await runPendingRecovery({
+        olderThanMs: RECOVERY_MIN_AGE_MS,
+        limit: STALE_RECOVERY_BATCH,
+      });
+      if (open > 0) {
+        console.log(`[maintenance] Payment safety net: ${open} open order(s), ${checked} checked with MegaPay.`);
+      }
+    } catch (err) {
+      console.error("[maintenance] Payment safety net failed:", err);
+    }
+
+    // 2. Reversal re-check for votes credited shortly before a restart, when the
+    //    in-process wake-up never ran.
+    try {
+      await reconcileRecentVotes();
+    } catch (err) {
+      console.error("[maintenance] Reversal re-check failed:", err);
+    }
+
+    // 3. Social poster queue (its own four-hour slot is enforced inside).
+    await runSocialQueueOnce();
+
+    // 4. WhatsApp link sweep (the hourly slot is claimed inside the sweep).
+    try {
+      const { runNomineeLinkSweepIfConnected } = await import("./whatsapp-baileys");
+      await runNomineeLinkSweepIfConnected();
+    } catch (err) {
+      console.error("[maintenance] WhatsApp sweep failed:", err);
+    }
+
+    // 5. Upload cleanup + abandoned-order retention (six-hourly; one statement
+    //    per table now that the orphan check is a single DELETE).
+    if (Date.now() - lastOrphanCleanupAt >= ORPHAN_CLEANUP_EVERY_MS) {
+      lastOrphanCleanupAt = Date.now();
+      await runOrphanCleanup();
+    }
+  }
+
+  // Start the loops. The boot passes run once each (finding orders and votes a
+  // restart left behind) and then the jobs go dormant until there is real work.
+  paymentRecoveryJob.setHandler(recoverPendingPayments);
+  voteReconcileJob.setHandler(reconcileRecentVotes);
+  maintenanceJob.setHandler(runMaintenanceSweep);
+  paymentRecoveryJob.start(60_000);
+  voteReconcileJob.start(60_000);
+  maintenanceJob.start(90_000);
 
   return httpServer;
 }

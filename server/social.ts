@@ -864,34 +864,40 @@ export async function getSocialStatus(): Promise<SocialStatus> {
   return base;
 }
 
-let socialTimer: NodeJS.Timeout | null = null;
+/**
+ * Production only: one pass of the poster queue. Called by the hourly
+ * maintenance sweep in `server/routes.ts`.
+ *
+ * This used to be its own five-minute timer. Five minutes between queries is
+ * shorter than Neon's five-minute scale-to-zero window, so the compute never
+ * went idle all month even with the queue paused. The four-hour posting slot is
+ * still enforced inside `runSocialQueue`/`claimNextPoster`, so an hourly caller
+ * publishes at the same real cadence and newly approved artists are still
+ * picked up without an admin click.
+ */
+export async function runSocialQueueOnce(): Promise<void> {
+  if (!socialPostingAllowedInThisProcess()) return;
+  try {
+    const result = await runSocialQueue();
+    if (result.claimed) {
+      console.log(
+        `[SOCIAL] ${result.status?.toUpperCase() ?? "POSTED"} ${result.artistName ?? ""} ` +
+          `(${result.posted} platform${result.posted === 1 ? "" : "s"})`,
+      );
+    }
+  } catch (err) {
+    console.error("[SOCIAL] Automatic queue failed:", err);
+  }
+}
 
 /**
- * Production only. On boot, and then every five minutes, publish the next poster
- * if the queue is on and 4 hours have passed. Newly approved artists are
- * picked up on the next tick without an admin click.
+ * Kept for the boot call in `server/index.ts`. The scheduler itself now belongs
+ * to the maintenance sweep; this only reports whether this process may post.
  */
 export function startSocialAutomation(): void {
   if (!socialPostingAllowedInThisProcess()) {
     console.log("[SOCIAL] Preview instance — auto-posting scheduler disabled.");
     return;
   }
-  if (socialTimer) return;
-
-  const tick = () => {
-    void runSocialQueue()
-      .then((result) => {
-        if (result.claimed) {
-          console.log(
-            `[SOCIAL] ${result.status?.toUpperCase() ?? "POSTED"} ${result.artistName ?? ""} ` +
-              `(${result.posted} platform${result.posted === 1 ? "" : "s"})`,
-          );
-        }
-      })
-      .catch((err) => console.error("[SOCIAL] Automatic queue failed:", err));
-  };
-
-  socialTimer = setInterval(tick, 5 * 60_000);
-  socialTimer.unref?.();
-  setTimeout(tick, 10_000).unref?.();
+  console.log("[SOCIAL] Poster queue is driven by the hourly maintenance sweep.");
 }

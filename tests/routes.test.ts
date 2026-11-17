@@ -450,6 +450,17 @@ test("HEALTH: a dead database is reported as degraded, not as a healthy page", a
   assert.equal(body.database, "unreachable");
 });
 
+test("HEALTH: the liveness check never needs the database", async () => {
+  // Uptime monitors and Render get a process-level answer that costs the
+  // database nothing. On Neon a query per probe is what keeps the compute awake
+  // (and billed) around the clock, so this route must stay storage-free.
+  const res = await get("/api/health/live");
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as { status: string; uptimeSeconds: number };
+  assert.equal(body.status, "ok");
+  assert.equal(typeof body.uptimeSeconds, "number");
+});
+
 test("SECURITY: alert and audit endpoints require an admin session", async () => {
   assert.equal((await get("/api/admin/alerts")).status, 401);
   assert.equal((await get("/api/admin/audit")).status, 401);

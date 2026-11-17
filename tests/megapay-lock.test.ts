@@ -25,6 +25,7 @@ import { COLLECTION_ACCOUNT_NUMBER, COLLECTION_PAYBILL } from "../shared/site";
 const ROOT = process.cwd();
 const ROUTES_SOURCE = readFileSync(join(ROOT, "server", "routes.ts"), "utf8");
 const USSD_SOURCE = readFileSync(join(ROOT, "server", "ussd.ts"), "utf8");
+const JOB_RUNNER_SOURCE = readFileSync(join(ROOT, "server", "job-runner.ts"), "utf8");
 
 /** The exact public surface the live flow depends on. Nothing else. */
 const EXPECTED_ROUTES = [
@@ -199,7 +200,12 @@ test("a refused or lost callback is still credited within a minute", () => {
   // sweep reads the gateway itself. Slowing it back to five minutes (or raising
   // the age threshold) silently turns a refused callback into a ten-minute wait.
   assert.match(ROUTES_SOURCE, /RECOVERY_MIN_AGE_MS = 60_000/);
-  assert.match(ROUTES_SOURCE, /setInterval\(recoverPendingPayments, 60 \* 1000\)/);
+  // The cadence is adaptive now (a fixed one-minute poll kept the Neon compute
+  // awake all month — see server/job-runner.ts), but a pass that finds an open
+  // order still asks for another pass every minute, and the hourly maintenance
+  // sweep is the safety net when no order is open.
+  assert.match(ROUTES_SOURCE, /work: open > 0/);
+  assert.match(JOB_RUNNER_SOURCE, /name: "payment-recovery"[\s\S]{0,120}activeDelayMs: 60_000/);
 
   // Safaricom can report a prompt failed while the handset is still processing
   // it. Deleting the order then would make a real, later payment impossible to

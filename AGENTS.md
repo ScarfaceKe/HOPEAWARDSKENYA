@@ -29,6 +29,45 @@ Standing instructions for anyone (human or AI agent) working in this repository.
 - Avoid scroll-triggered reveal animations (`whileInView`) on content that must always be visible;
   a missed trigger leaves text permanently invisible.
 
+## Database cost (Neon compute) — read before adding any timer
+
+Neon charges **compute time**, not queries, and a compute only suspends after
+**5 minutes with no query**. A Free project has 100 CU-hours/month, which is
+~16 days at the smallest compute if it never sleeps. This app exhausted that
+allowance in November 2026 because several background timers (60 s payment
+recovery, 3 min reversal check, 5 min social tick, 15 min WhatsApp sweep, 30 min
+upload cleanup, per-request `/api/health`) meant the compute never went quiet.
+
+Rules that keep it fixed:
+
+- **Never add a `setInterval` shorter than five minutes that touches the
+database.** Schedule through `server/job-runner.ts` (`AdaptiveJob`): it runs
+again only while a pass finds work, goes dormant (`idleDelayMs: null`) when a
+pass finds nothing, never overlaps itself, backs off on errors, and takes a
+short `job_leases` row so two instances cannot run the same pass.
+- **Wake jobs from real events, not from a poll.** `storage.createPendingPayment`
+wakes payment recovery; `creditPendingOrder` wakes the reversal check. The hourly
+`maintenanceJob` is the safety net for anything a restart left behind (pending
+orders, recently credited votes, social queue, WhatsApp sweep, upload cleanup,
+retention purge).
+- **Keep one sweep, not five timers.** Coalesced work in one hourly pass is what
+allows scale-to-zero; two timers ten minutes apart do not.
+- **Health checks must not query per request.** `/api/health` caches its probe for
+60 s; `/api/health/live` never touches Postgres and is what uptime monitors (and
+Render) should use. `render.yaml` points Render at `/`, which is static.
+- **Keep queries bounded and indexed.** Recovery uses
+`storage.listPendingPaymentsForRecovery` (indexed page, oldest first); reversals
+use `storage.listVotesNeedingReverification` (indexed `votes_created_at_idx`,
+newest first, hard limit). Do not reintroduce an unbounded `getVotesSince` scan in
+a polled route.
+- **Payment integrity still outranks cost.** Recovery is never disabled: it is
+fast (60 s) while an order is open and hourly when the queue looks empty. If you
+change the cadence, `tests/db-compute-guard.test.ts` and
+`tests/megapay-lock.test.ts` should need a deliberate edit too.
+
+See `MIGRATION-NEON-TO-SUPABASE.md` for the backup/restore/verification runbook
+and `scripts/db-export.sh`, `scripts/db-restore.sh`, `scripts/db-verify.sql`.
+
 ## Verifying changes
 
 - Run `npm run check` (TypeScript), `npm test` and `npm run build` before claiming a change works.
@@ -114,7 +153,7 @@ before voting opens.
 - One poster per artist, one row in `social_posts` (unique `artist_id`). The same poster can never publish twice; a failed post gets at most three attempts, then the queue moves on.
 - The production server owns both the timer and manual publishing. The preview and test process never post to the real accounts (`SOCIAL_ALLOW_DEV_POSTS=true` is the only override, for a staging install with its own accounts). `startSocialAutomation()` starts the queue; manual publishing from Admin → Social uses `runSocialQueue({ force: true })` and bypasses the pause switch, the 4-hour slot and the retry wait, not the attempt cap, the one-row ledger or platform validation.
 - The automatic cadence is one poster every 4 hours (6 per platform per day). Facebook's 100/day, TikTok Business's 15 photo/day and Zernio's 25/hour caps are not the constraint; **YouTube is**: a Data API video upload costs 1,600 of the default 10,000 units/day, so 6 uploads use 9,600. Do not raise the cadence back to 8/day without checking the channel's YouTube quota. Instagram is intentionally not in `SOCIAL_PLATFORMS`.
-- `social_automation` holds the switch, Zernio profile id and last slot. Enabling it resets the slot so the next poster can go on the next five-minute queue tick (or immediately with POST NEXT POSTER); pausing survives restarts. The queue is off on a fresh install.
+- `social_automation` holds the switch, Zernio profile id and last slot. Enabling it resets the slot so the next poster can go on the next queue tick — the hourly maintenance sweep, or immediately with POST NEXT POSTER. Pausing survives restarts. The queue is off on a fresh install.
 - Media must be a publicly reachable **HTTPS** URL. Uploaded images are served from `https://www.hopeawards.co.ke` (the bare domain 301s, which some media fetchers do not follow). `socialMediaUrl()` throws on `http://`, empty and scheme-only values rather than silently handing a bad URL to a platform, and the queue queries skip rows that are neither a relative path nor HTTPS so one bad URL cannot block every later poster.
 - **YouTube gets a video, not the still image.** `server/poster-video.ts` renders a 1080x1920, 20-second H.264/AAC MP4 and uploads it to Zernio's presigned media storage; `server/gospel-audio.ts` synthesizes the soundtrack (original gospel organ/pentatonic instrumental). Do not swap in a copyrighted gospel recording: the generated track is deliberate so YouTube Content ID cannot mute or block the upload. The video uses the finished poster over a blurred, darkened copy of itself and becomes a YouTube Short. If YouTube is connected and the video cannot be rendered/uploaded, fail the whole post so the ledger retries it; never silently publish only Facebook/TikTok.
 - ffmpeg comes from the `@ffmpeg-installer/ffmpeg` dependency; do not replace it with a system `ffmpeg` call. The npm package carries the static binary the Node host needs.

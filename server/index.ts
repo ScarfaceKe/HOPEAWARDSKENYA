@@ -5,6 +5,7 @@ import { serveStatic } from "./static";
 import { createServer } from "http";
 import { seedInitialData, storage } from "./storage";
 import { runMigrations } from "./migrate";
+import { isDatabaseUnavailable } from "./db";
 
 const app = express();
 app.set("trust proxy", 1);
@@ -88,14 +89,26 @@ app.use((req, res, next) => {
   }
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
+    if (res.headersSent) {
+      return next(err);
+    }
+
+    // A database outage is not a generic 500. Say so plainly and answer 503, so
+    // no client — and no payment screen — can mistake it for "the vote worked"
+    // or for a bad request the fan should retry against another nominee.
+    if (isDatabaseUnavailable(err)) {
+      console.error("Database unavailable:", err?.message || err);
+      return res.status(503).json({
+        status: "unavailable",
+        message:
+          "The voting service is temporarily unavailable and could not confirm your request. Nothing was charged by this request. Please try again in a moment.",
+      });
+    }
+
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
 
     console.error("Internal Server Error:", err);
-
-    if (res.headersSent) {
-      return next(err);
-    }
 
     return res.status(status).json({ message });
   });

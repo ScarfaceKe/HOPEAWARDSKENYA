@@ -259,6 +259,28 @@ export async function runMigrations() {
       CREATE INDEX IF NOT EXISTS admin_audit_log_created_at_idx
         ON admin_audit_log (created_at DESC);
     `);
+    // The reversal check reads "votes credited in the last hour". Without this
+    // index that is a sequential scan of the whole ledger on every pass — the
+    // single most expensive query the background jobs produced.
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS votes_created_at_idx
+        ON votes (created_at DESC);
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS uploaded_images_created_at_idx
+        ON uploaded_images (created_at);
+    `);
+
+    // Background-job lease: one short row per job so two app instances can
+    // never run the same payment sweep (and make the same gateway calls) at
+    // once. Written and forgotten; never held open like an advisory lock.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS job_leases (
+        name TEXT PRIMARY KEY,
+        owner TEXT NOT NULL,
+        expires_at TIMESTAMPTZ NOT NULL
+      );
+    `);
     // "Has this nominee been messaged?" is asked per request, newest first.
     await client.query(`
       CREATE INDEX IF NOT EXISTS nominee_notifications_request_id_idx

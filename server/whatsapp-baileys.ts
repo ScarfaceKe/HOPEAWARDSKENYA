@@ -95,7 +95,6 @@ let hasSavedSession = false;
 let shouldReconnect = true;
 let connecting: Promise<WhatsAppStatus> | null = null;
 let reconnectTimer: NodeJS.Timeout | null = null;
-let sweepTimer: NodeJS.Timeout | null = null;
 let sweepKickTimer: NodeJS.Timeout | null = null;
 let sweepRunning = false;
 let storageRef: IStorage | null = null;
@@ -351,15 +350,18 @@ function scheduleSweep(delayMs: number): void {
   sweepKickTimer.unref?.();
 }
 
-function startSweepLoop(): void {
-  if (sweepTimer) return;
-  // Check every 15 minutes; the atomic claim inside the sweep allows at most
-  // one batch an hour. Polling more often than the gate means the next batch
-  // starts close to the hour rather than up to another hour late.
-  sweepTimer = setInterval(() => {
-    if (sessionState === "connected" && storageRef) void runNomineeLinkSweep(storageRef);
-  }, 15 * 60_000);
-  sweepTimer.unref?.();
+/**
+ * One sweep pass for the hourly maintenance sweep in `server/routes.ts`.
+ *
+ * The sweep used to run its own 15-minute timer. `claimWhatsAppBatch()` already
+ * allows at most one batch an hour, so a 15-minute poll was 96 database reads a
+ * day to discover it was not allowed to send — and no gap that long is enough
+ * to let a Neon compute scale to zero. An hourly caller keeps the same real
+ * send cadence.
+ */
+export async function runNomineeLinkSweepIfConnected(): Promise<void> {
+  if (sessionState !== "connected" || !storageRef) return;
+  await runNomineeLinkSweep(storageRef);
 }
 
 // ─── Connection lifecycle ───────────────────────────────────────────────────
@@ -397,6 +399,7 @@ async function ensureLeadership(): Promise<boolean> {
       return false;
     }
 
+    leadershipRetries = 0;
     leaderClient = leaseClient;
     leaseClient.on("error", () => {
       if (leaderClient !== leaseClient) return;
@@ -429,12 +432,22 @@ async function ensureLeadership(): Promise<boolean> {
   }
 }
 
+/**
+ * A deploy overlap leaves the old instance holding the session lock, so the new
+ * one waits. Retrying every 15 seconds for ever is a database connection attempt
+ * (and on Neon a compute wake-up) every 15 seconds; the delay grows to once a
+ * minute while the lock stays elsewhere and resets when we finally own it.
+ */
+let leadershipRetries = 0;
+
 function scheduleLeadershipRetry(): void {
   if (leadershipRetryTimer || !storageRef) return;
+  const delay = Math.min(60_000, 15_000 * 2 ** Math.min(leadershipRetries, 2));
+  leadershipRetries += 1;
   leadershipRetryTimer = setTimeout(() => {
     leadershipRetryTimer = null;
     if (storageRef) void startWhatsAppAutomation(storageRef);
-  }, 15_000);
+  }, delay);
   leadershipRetryTimer.unref?.();
 }
 
@@ -826,8 +839,6 @@ export async function startWhatsAppAutomation(storage: IStorage): Promise<void> 
     scheduleLeadershipRetry();
     return;
   }
-
-  startSweepLoop();
 
   try {
     const { rows } = await pool.query<{ key: string }>(

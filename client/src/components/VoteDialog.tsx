@@ -55,8 +55,26 @@ function fireVoteConfetti() {
   }, 500);
 }
 
-/** How often the success screen re-reads the nominee's running total. */
-const LIVE_TOTAL_REFRESH_MS = 5000;
+/**
+ * How often the success screen re-reads the nominee's running total.
+ *
+ * Every refresh is a status call, and a status call is a database read (plus a
+ * gateway check the first time). Five seconds while a fan stares at the screen
+ * added nothing they could see — the tally moves by a vote or two — and it was
+ * the single noisiest client poll in the app. Twenty seconds for three minutes
+ * keeps the number live without the traffic.
+ */
+const LIVE_TOTAL_REFRESH_MS = 20_000;
+const LIVE_TOTAL_MAX_MS = 3 * 60_000;
+
+/**
+ * Payment-confirmation polling. Fast while the fan is likely still entering
+ * their M-Pesa PIN, then slower: a forgotten prompt must not turn one order into
+ * 100 status calls (each one a database read and a gateway lookup).
+ */
+const POLL_INTERVAL_FAST_MS = 3_000;
+const POLL_INTERVAL_SLOW_MS = 8_000;
+const POLL_FAST_ATTEMPTS = 15;
 
 function CountUp({ to, duration = 1100 }: { to: number; duration?: number }) {
   const [value, setValue] = useState(0);
@@ -105,8 +123,9 @@ export function VoteDialog({ artistId, artistName, categoryName, isOpen, onClose
   const [pollingStatus, setPollingStatus] = useState<string | null>(null);
   const [confirmed, setConfirmed] = useState<VoteConfirmation | null>(null);
   const [failureMessage, setFailureMessage] = useState<string>("");
-  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const liveTotalTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const liveTotalStartedAtRef = useRef(0);
   // Async poll/refresh callbacks can resolve after the fan closes the dialog.
   // Without this guard, a late response would flip the page behind the dialog
   // back to the success state and start a live-total timer that nothing clears.
@@ -169,7 +188,7 @@ export function VoteDialog({ artistId, artistName, categoryName, isOpen, onClose
         setFailureMessage("");
         hasFiredConfetti.current = false;
         lastLiveTotalRef.current = null;
-        if (pollTimerRef.current) { clearInterval(pollTimerRef.current); pollTimerRef.current = null; }
+        if (pollTimerRef.current) { clearTimeout(pollTimerRef.current); pollTimerRef.current = null; }
       }, 300);
     }
   }, [isOpen]);
@@ -182,8 +201,9 @@ export function VoteDialog({ artistId, artistName, categoryName, isOpen, onClose
    */
   const startLiveTotal = (reference: string, votesAdded: number) => {
     stopLiveTotal();
+    liveTotalStartedAtRef.current = Date.now();
     liveTotalTimerRef.current = setInterval(async () => {
-      if (!isOpenRef.current) {
+      if (!isOpenRef.current || Date.now() - liveTotalStartedAtRef.current > LIVE_TOTAL_MAX_MS) {
         stopLiveTotal();
         return;
       }
@@ -207,15 +227,17 @@ export function VoteDialog({ artistId, artistName, categoryName, isOpen, onClose
   };
 
   const startPolling = (reference: string, expectedVotes: number) => {
-    if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+    if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
     let attempts = 0;
-    // 5 minutes at 3s intervals: an M-Pesa prompt the fan has to dig their phone
-    // out for routinely takes longer than the old 60-second window, and giving up
-    // early was how a paid vote could look like a failure.
-    const maxAttempts = 100;
+    // ~5 minutes of coverage: 45 seconds at the fast cadence (the fan is on the
+    // PIN screen), then every 8 seconds. An M-Pesa prompt the fan has to dig
+    // their phone out for routinely takes longer than the old 60-second window,
+    // and giving up early was how a paid vote could look like a failure.
+    const maxAttempts = 50;
 
-    pollTimerRef.current = setInterval(async () => {
+    const poll = async () => {
       attempts++;
+      let finished = false;
       try {
         const res = await fetch(`/api/megapay/status/${reference}`);
         const data = await res.json();
@@ -227,7 +249,6 @@ export function VoteDialog({ artistId, artistName, categoryName, isOpen, onClose
         // reconciles a lost callback with MegaPay first, so this is the point at
         // which the votes are genuinely on the board.
         if (data.status === "recorded" || data.status === "already_recorded" || data.status === "success") {
-          if (pollTimerRef.current) clearInterval(pollTimerRef.current);
           const votesAdded = Number(data.votesAdded ?? data.vote?.votesAdded ?? expectedVotes);
           const rawTotal = data.totalVotes;
           const parsedTotal = rawTotal === null || rawTotal === undefined || rawTotal === "" ? NaN : Number(rawTotal);
@@ -242,33 +263,41 @@ export function VoteDialog({ artistId, artistName, categoryName, isOpen, onClose
             hasFiredConfetti.current = true;
             fireVoteConfetti();
           }
-          return;
-        }
-
-        if (data.status === "failed" || data.status === "closed") {
-          if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+          finished = true;
+        } else if (data.status === "failed" || data.status === "closed") {
           setFailureMessage(data.message || "The payment was not completed. You have not been charged.");
           setPollingStatus("failed");
-          return;
-        }
-
-        if (attempts >= maxAttempts) {
-          if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+          finished = true;
+        } else if (attempts >= maxAttempts) {
           setPollingStatus("timeout");
           toast({ title: "Still confirming", description: "Your payment may still be processing. We keep checking on our side — refresh this page in a few minutes before trying again.", variant: "default" });
+          finished = true;
         }
       } catch (err) {
         if (attempts >= maxAttempts) {
-          if (pollTimerRef.current) clearInterval(pollTimerRef.current);
           setPollingStatus("timeout");
+          finished = true;
         }
       }
-    }, 3000);
+
+      if (finished) {
+        if (pollTimerRef.current) {
+          clearTimeout(pollTimerRef.current);
+          pollTimerRef.current = null;
+        }
+        return;
+      }
+      if (!isOpenRef.current) return;
+      const delay = attempts < POLL_FAST_ATTEMPTS ? POLL_INTERVAL_FAST_MS : POLL_INTERVAL_SLOW_MS;
+      pollTimerRef.current = setTimeout(poll, delay);
+    };
+
+    pollTimerRef.current = setTimeout(poll, POLL_INTERVAL_FAST_MS);
   };
 
   useEffect(() => {
     return () => {
-      if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+      if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
       if (liveTotalTimerRef.current) clearInterval(liveTotalTimerRef.current);
     };
   }, []);

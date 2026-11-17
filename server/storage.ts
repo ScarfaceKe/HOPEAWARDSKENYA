@@ -21,8 +21,9 @@ import {
   type PendingPayment,
   CATEGORY_CAP,
 } from "@shared/schema";
-import { eq, and, sql, lt, gte, inArray, desc, asc, ne } from "drizzle-orm";
+import { eq, and, sql, lt, gte, desc, asc, ne, isNotNull } from "drizzle-orm";
 import { VOTING_START, VOTING_END } from "@shared/dates";
+import { paymentRecoveryJob } from "./job-runner";
 
 // Re-exported so existing server imports (`import { CATEGORY_CAP } from "./storage"`)
 // keep working; the value itself is defined once in `shared/schema.ts`.
@@ -47,7 +48,14 @@ export interface IStorage {
   getVoteByReference(ref: string): Promise<VoteResponse | undefined>;
   /** Finds the vote by MegaPay's own id — the reference is now the account number. */
   getVoteByGatewayRequestId(id: string): Promise<VoteResponse | undefined>;
-  getVotesSince(withinMs: number): Promise<VoteResponse[]>;
+  /** Newest first. `limit` keeps an admin read from loading weeks of votes. */
+  getVotesSince(withinMs: number, limit?: number): Promise<VoteResponse[]>;
+  /**
+   * Credited votes from the reversal window that can actually be re-checked
+   * (they have a gateway id). Bounded, newest first, so a busy hour cannot turn
+   * one reconciliation pass into thousands of gateway calls.
+   */
+  listVotesNeedingReverification(opts: { withinMs: number; limit?: number }): Promise<VoteResponse[]>;
   /** Removes a vote whose payment was reversed, and gives the votes back. */
   voidVoteByReference(ref: string): Promise<VoteResponse | undefined>;
   getVotesByPhone(phone: string): Promise<VoteResponse[]>;
@@ -79,6 +87,16 @@ export interface IStorage {
   getPendingPaymentByGatewayRequestId(id: string): Promise<PendingPayment | undefined>;
   deletePendingPayment(reference: string): Promise<void>;
   getOldPendingPayments(olderThanMs: number): Promise<PendingPayment[]>;
+  /**
+   * One bounded page of open vote orders for the background recovery pass,
+   * oldest first (a queue, not a stack). The optional upper age bound keeps a
+   * long tail of abandoned orders from crowding out fresh ones.
+   */
+  listPendingPaymentsForRecovery(opts: {
+    olderThanMs: number;
+    newerThanMs?: number;
+    limit?: number;
+  }): Promise<PendingPayment[]>;
   getAllPendingPayments(): Promise<PendingPayment[]>;
   purgeAbandonedPendingPayments(olderThanMs: number): Promise<number>;
   logAdminAction(entry: AdminActionInput): Promise<void>;
@@ -221,9 +239,39 @@ export class DatabaseStorage implements IStorage {
     return vote;
   }
 
-  async getVotesSince(withinMs: number): Promise<VoteResponse[]> {
+  async getVotesSince(withinMs: number, limit = 200): Promise<VoteResponse[]> {
     const cutoff = new Date(Date.now() - withinMs);
-    return await db.select().from(votes).where(gte(votes.createdAt, cutoff));
+    const safeLimit = Number.isFinite(limit) ? Math.min(Math.max(Math.trunc(limit), 1), 2000) : 200;
+    return await db
+      .select()
+      .from(votes)
+      .where(gte(votes.createdAt, cutoff))
+      .orderBy(desc(votes.createdAt))
+      .limit(safeLimit);
+  }
+
+  async listVotesNeedingReverification(opts: {
+    withinMs: number;
+    limit?: number;
+  }): Promise<VoteResponse[]> {
+    const cutoff = new Date(Date.now() - opts.withinMs);
+    const limit = opts.limit ?? 100;
+    const safeLimit = Number.isFinite(limit) ? Math.min(Math.max(Math.trunc(limit), 1), 500) : 100;
+    return await db
+      .select({
+        id: votes.id,
+        artistId: votes.artistId,
+        amountKes: votes.amountKes,
+        votesAdded: votes.votesAdded,
+        paymentReference: votes.paymentReference,
+        gatewayRequestId: votes.gatewayRequestId,
+        voterPhone: votes.voterPhone,
+        createdAt: votes.createdAt,
+      })
+      .from(votes)
+      .where(and(gte(votes.createdAt, cutoff), isNotNull(votes.gatewayRequestId)))
+      .orderBy(desc(votes.createdAt))
+      .limit(safeLimit);
   }
 
   async voidVoteByReference(ref: string): Promise<VoteResponse | undefined> {
@@ -413,34 +461,25 @@ export class DatabaseStorage implements IStorage {
     return Number(count) || 0;
   }
 
+  /**
+   * One statement instead of three full-table reads: the old shape loaded every
+   * nomination, every nominee and every upload row (base64 payloads excluded only
+   * by luck) into Node once every 30 minutes just to find a handful of orphans.
+   */
   async deleteOrphanedUploads(olderThanMs: number): Promise<number> {
     const cutoff = new Date(Date.now() - olderThanMs);
-
-    const referencedFromRequests = await db
-      .select({ imageUrl: requests.imageUrl })
-      .from(requests);
-    const referencedFromArtists = await db
-      .select({ imageUrl: artists.imageUrl })
-      .from(artists);
-
-    const referencedFilenames = new Set([
-      ...referencedFromRequests.map((r) => r.imageUrl.replace("/api/uploaded-images/", "")),
-      ...referencedFromArtists.map((r) => r.imageUrl.replace("/api/uploaded-images/", "")),
-    ]);
-
-    const candidates = await db
-      .select({ id: uploadedImages.id, filename: uploadedImages.filename })
-      .from(uploadedImages)
-      .where(lt(uploadedImages.createdAt, cutoff));
-
-    const toDelete = candidates
-      .filter((u) => !referencedFilenames.has(u.filename))
-      .map((u) => u.id);
-
-    if (toDelete.length === 0) return 0;
-
-    await db.delete(uploadedImages).where(inArray(uploadedImages.id, toDelete));
-    return toDelete.length;
+    const result = await db.execute(sql`
+      DELETE FROM uploaded_images u
+      WHERE u.created_at < ${cutoff}
+        AND NOT EXISTS (
+          SELECT 1 FROM requests r WHERE r.image_url LIKE '%' || u.filename
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM artists a WHERE a.image_url LIKE '%' || u.filename
+        )
+      RETURNING u.id
+    `);
+    return (result as { rowCount?: number | null }).rowCount ?? 0;
   }
   async createVoteForce(insertVote: InsertVote): Promise<VoteResponse> {
     return await db.transaction(async (tx) => {
@@ -464,6 +503,10 @@ export class DatabaseStorage implements IStorage {
 
   async createPendingPayment(reference: string, artistId: number, votesAdded: number, amountKes: number, voterPhone: string | null): Promise<void> {
     await db.insert(pendingPayments).values({ reference, artistId, votesAdded, amountKes, voterPhone }).onConflictDoNothing();
+    // A real order exists now, so the recovery pass is worth running: it starts
+    // a one-minute cadence until this order is credited or abandoned. Until
+    // this point the loop is dormant and the database can go idle.
+    paymentRecoveryJob.wake(15_000);
   }
 
   async setPendingGatewayRequestId(reference: string, gatewayRequestId: string): Promise<void> {
@@ -498,6 +541,28 @@ export class DatabaseStorage implements IStorage {
   async getOldPendingPayments(olderThanMs: number): Promise<PendingPayment[]> {
     const cutoff = new Date(Date.now() - olderThanMs);
     return await db.select().from(pendingPayments).where(lt(pendingPayments.createdAt, cutoff));
+  }
+
+  async listPendingPaymentsForRecovery(opts: {
+    olderThanMs: number;
+    newerThanMs?: number;
+    limit?: number;
+  }): Promise<PendingPayment[]> {
+    const now = Date.now();
+    const limit = opts.limit ?? 25;
+    const safeLimit = Number.isFinite(limit) ? Math.min(Math.max(Math.trunc(limit), 1), 100) : 25;
+
+    const conditions = [lt(pendingPayments.createdAt, new Date(now - opts.olderThanMs))];
+    if (opts.newerThanMs !== undefined) {
+      conditions.push(gte(pendingPayments.createdAt, new Date(now - opts.newerThanMs)));
+    }
+
+    return await db
+      .select()
+      .from(pendingPayments)
+      .where(and(...conditions))
+      .orderBy(asc(pendingPayments.createdAt))
+      .limit(safeLimit);
   }
 
   async getAllPendingPayments(): Promise<PendingPayment[]> {

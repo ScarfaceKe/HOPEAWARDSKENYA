@@ -298,7 +298,9 @@ export default function Admin() {
   const { data: alerts = [], refetch: refetchAlerts } = useQuery<any[]>({
     queryKey: ["/api/admin/alerts"],
     enabled: isAuthed,
-    refetchInterval: 30_000,
+    // Alerts are security telemetry, not a live scoreboard. An open dashboard
+    // left on this tab all day used to poll every 30 seconds, around the clock.
+    refetchInterval: 60_000,
   });
 
   const { data: auditLog = [] } = useQuery<any[]>({
@@ -412,8 +414,11 @@ export default function Admin() {
   // itself. Poll while unlinked so the pairing code / QR stays current.
   const { data: whatsapp, refetch: refetchWhatsApp } = useQuery<any>({
     queryKey: ["/api/admin/whatsapp"],
-    enabled: isAuthed,
-    refetchInterval: 5_000,
+    // Only while the panel that shows it is open, and never in the background.
+    // 5 seconds used to mean a database read every 5 seconds for as long as an
+    // admin left the dashboard open — enough to keep a Neon compute awake.
+    enabled: isAuthed && activeTab === "approved",
+    refetchInterval: 15_000,
   });
   const [waPhone, setWaPhone] = useState("");
 
@@ -758,8 +763,10 @@ export default function Admin() {
 
   const { data: pendingPayments = [], refetch: refetchPending } = useQuery<any[]>({
     queryKey: ["/api/admin/pending-payments"],
-    enabled: isAuthed,
-    refetchInterval: 30_000,
+    // The list renders on the Votes tab only; polling it from every tab was a
+    // database read a minute for as long as a dashboard stayed open.
+    enabled: isAuthed && activeTab === "votes",
+    refetchInterval: 60_000,
   });
 
   const recoverMutation = useMutation({
