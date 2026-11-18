@@ -228,6 +228,39 @@ async function main() {
       }
     }
 
+    // ── Integrity: money that moved without the arithmetic to match ────────
+    // Cheap invariants that catch a half-written credit after an outage: a vote
+    // row with no gateway id was never confirmed by MegaPay, and a row whose
+    // amount is not `votes * 10` means the charge and the credit disagree.
+    const integrity = await one<{ no_gateway: string; bad_amount: string; not_whole: string }>(`
+      SELECT count(*) FILTER (WHERE gateway_request_id IS NULL)                     AS no_gateway,
+             count(*) FILTER (WHERE amount_kes <> votes_added * 10)                 AS bad_amount,
+             count(*) FILTER (WHERE votes_added <= 0 OR votes_added <> trunc(votes_added)) AS not_whole
+      FROM votes;
+    `);
+    console.log("\nINTEGRITY (all time)");
+    console.log(`  rows with no gateway id   : ${n(integrity.no_gateway)}  (should be 0)`);
+    console.log(`  rows where amount ≠ 10×votes : ${n(integrity.bad_amount)}  (should be 0)`);
+    console.log(`  rows with a non-whole vote count : ${n(integrity.not_whole)}  (should be 0)`);
+
+    if (n(integrity.no_gateway) > 0) {
+      const { rows: unconfirmed } = await client.query(`
+        SELECT v.payment_reference, v.artist_id, v.votes_added, v.amount_kes,
+               to_char((v.created_at AT TIME ZONE 'UTC') AT TIME ZONE 'Africa/Nairobi',
+                       'YYYY-MM-DD HH24:MI') AS created_eat
+        FROM votes v
+        WHERE v.gateway_request_id IS NULL
+        ORDER BY v.created_at DESC
+        LIMIT 20;
+      `);
+      for (const row of unconfirmed as Array<Record<string, any>>) {
+        console.log(
+          `    ${row.created_eat} EAT  ${row.payment_reference}  artist ${row.artist_id}  ` +
+            `${row.votes_added} votes  ${kes(row.amount_kes)}`,
+        );
+      }
+    }
+
     await client.query("ROLLBACK");
     console.log("\n=== Audit complete (read-only transaction rolled back) ===\n");
   } catch (err) {
