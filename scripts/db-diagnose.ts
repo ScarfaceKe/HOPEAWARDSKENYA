@@ -52,6 +52,29 @@ try {
             (select count(*) from categories)   as categories`,
   );
   console.log("rows        :", counts.rows[0]);
+
+  // Compute settings, where the server exposes them. Neon reports the endpoint's
+  // compute ceiling through `neon.*` settings; other Postgres hosts simply have
+  // none, which is not an error. Best effort — this is diagnosis, not a probe
+  // that should ever fail the command.
+  try {
+    const { rows: neon } = await client.query(
+      `select name, setting
+         from pg_settings
+        where name like 'neon%'
+        order by name`,
+    );
+    if (neon.length > 0) {
+      console.log("compute     :");
+      for (const row of neon as Array<{ name: string; setting: string }>) {
+        console.log(`  ${row.name} = ${row.setting}`);
+      }
+    } else {
+      console.log("compute     : (host exposes no neon.* settings)");
+    }
+  } catch {
+    console.log("compute     : (settings not readable)");
+  }
 } catch (error) {
   const e = error as { code?: string; message?: string; detail?: string; hint?: string };
   console.error("FAILED      :", e.message);
