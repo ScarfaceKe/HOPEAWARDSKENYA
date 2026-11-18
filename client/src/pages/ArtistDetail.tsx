@@ -28,16 +28,32 @@ export default function ArtistDetail() {
     );
   }
 
+  // A nominee page is the most-shared link in the whole campaign — printed on
+  // posters and pasted into WhatsApp groups — so it outlives the nominee row.
+  // When an old link arrives after the nominee was removed or merged, the fan is
+  // trying to vote: send them to the search instead of a dead end.
   if (!artist) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-background text-center px-4">
-        <h1 className="font-display text-6xl text-primary neon-text-gold mb-4">404</h1>
-        <p className="text-2xl text-white mb-8">Artist not found.</p>
-        <Link href="/">
-          <span className="px-6 py-3 bg-white/10 border border-white/20 rounded-xl text-white font-display cursor-pointer transition-colors">
-            RETURN TO HOME
-          </span>
-        </Link>
+        <h1 className="font-display text-5xl text-primary neon-text-gold mb-4">Nominee not found</h1>
+        <p className="text-lg text-white/80 max-w-md mb-2">
+          This link is from an earlier poster or message, and that nominee is no longer listed.
+        </p>
+        <p className="text-sm text-muted-foreground max-w-md mb-8">
+          The award is still open — find your favourite and vote.
+        </p>
+        <div className="flex flex-col sm:flex-row items-center gap-3">
+          <Link href="/discover">
+            <span className="inline-flex items-center gap-2 px-6 py-3 bg-primary text-black font-display rounded-xl cursor-pointer transition-opacity hover:opacity-90">
+              SEARCH NOMINEES <ArrowLeft className="w-4 h-4 rotate-180" />
+            </span>
+          </Link>
+          <Link href="/">
+            <span className="px-6 py-3 bg-white/10 border border-white/20 rounded-xl text-white font-display cursor-pointer transition-colors">
+              BACK TO HOME
+            </span>
+          </Link>
+        </div>
       </div>
     );
   }

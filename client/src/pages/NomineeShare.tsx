@@ -49,12 +49,22 @@ export default function NomineeShare() {
     return (
       <div className="min-h-screen bg-grid-pattern flex items-center justify-center px-4">
         <div className="text-center">
-          <p className="text-muted-foreground mb-4">This nominee link is no longer available.</p>
-          <Link href="/">
-            <span className="inline-flex items-center gap-2 px-6 py-3 bg-primary text-black font-display rounded-xl cursor-pointer">
-              BACK TO HOME <ArrowRight className="w-4 h-4" />
-            </span>
-          </Link>
+          <p className="text-white text-lg mb-2">This nominee link is no longer available.</p>
+          <p className="text-muted-foreground mb-6 max-w-md mx-auto">
+            The link may be from an earlier message. The award is still open — search for a nominee and vote.
+          </p>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+            <Link href="/discover">
+              <span className="inline-flex items-center gap-2 px-6 py-3 bg-primary text-black font-display rounded-xl cursor-pointer">
+                FIND A NOMINEE <ArrowRight className="w-4 h-4" />
+              </span>
+            </Link>
+            <Link href="/">
+              <span className="inline-flex items-center gap-2 px-6 py-3 bg-white/10 border border-white/20 text-white font-display rounded-xl cursor-pointer">
+                BACK TO HOME
+              </span>
+            </Link>
+          </div>
         </div>
       </div>
     );
